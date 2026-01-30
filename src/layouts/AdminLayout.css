@@ -1,0 +1,99 @@
+.admin-layout {
+  display: flex;
+  min-height: 100vh;
+  background: #f8fafc;
+  /* Slightly lighter bg to match new theme */
+}
+
+.admin-main-wrapper {
+  flex: 1;
+  margin-left: 280px;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  transition: margin-left 0.3s ease;
+}
+
+.admin-content {
+  flex: 1;
+  padding: 0;
+  overflow-x: hidden;
+}
+
+@media (max-width: 768px) {
+  .admin-main-wrapper {
+    margin-left: 0;
+    padding-top: 70px;
+  }
+
+  .admin-content {
+    padding: 0;
+  }
+
+  /* Make all containers responsive */
+  .container-fluid {
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+  }
+
+  /* Make tables scrollable on mobile */
+  .table-responsive {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Make cards more compact on mobile */
+  .card {
+    margin-bottom: 1rem;
+  }
+
+  .card-body {
+    padding: 1rem !important;
+  }
+
+  /* Make buttons stack on mobile */
+  .btn-group {
+    flex-direction: column;
+  }
+
+  /* Adjust table fonts for mobile */
+  table {
+    font-size: 0.875rem;
+  }
+
+  table th,
+  table td {
+    padding: 0.5rem !important;
+    white-space: nowrap;
+  }
+
+  /* Make modals full width on small screens */
+  .modal-dialog {
+    margin: 0.5rem;
+  }
+
+  /* Adjust page headers */
+  .page-header h3 {
+    font-size: 1.5rem !important;
+  }
+
+  .page-header p {
+    font-size: 0.875rem !important;
+  }
+
+  /* Make search and filter inputs stack */
+  .row.g-2 > [class*='col-'] {
+    margin-bottom: 0.5rem;
+  }
+
+  /* Adjust input groups */
+  .input-group {
+    font-size: 0.875rem;
+  }
+
+  /* Make badges smaller */
+  .badge {
+    font-size: 0.7rem;
+    padding: 0.25rem 0.5rem;
+  }
+}

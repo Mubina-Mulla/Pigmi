@@ -1,0 +1,84 @@
+.header-navbar {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  padding: 15px 0;
+}
+
+.brand-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 22px;
+  font-weight: 700;
+  color: white !important;
+}
+
+.logo-icon {
+  font-size: 32px;
+}
+
+.brand-text {
+  background: linear-gradient(to right, #fff, #f0f0f0);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-right: 20px;
+  padding: 8px 20px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 25px;
+  backdrop-filter: blur(10px);
+}
+
+.user-icon {
+  font-size: 20px;
+}
+
+.user-name {
+  color: white;
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.user-role {
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 13px;
+  padding: 2px 10px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+}
+
+.logout-btn {
+  border: 2px solid white !important;
+  color: white !important;
+  font-weight: 600;
+  padding: 8px 25px;
+  border-radius: 25px;
+  transition: all 0.3s;
+}
+
+.logout-btn:hover {
+  background: white !important;
+  color: #667eea !important;
+  transform: translateY(-2px);
+}
+
+@media (max-width: 768px) {
+  .brand-text {
+    font-size: 16px;
+  }
+  
+  .user-info {
+    margin: 10px 0;
+  }
+  
+  .logout-btn {
+    width: 100%;
+    margin-top: 10px;
+  }
+}
