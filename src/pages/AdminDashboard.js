@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { Container, Table, Card, Badge, Form, InputGroup, Button, Row, Col } from "react-bootstrap";
-import { ref, onValue, set, push } from "firebase/database";
+import { Container, Table, Card, Badge, Form, InputGroup } from "react-bootstrap";
+import { ref, onValue, set } from "firebase/database";
 import { Search } from "react-feather";
 import { database } from "../firebase";
 import StatCards from "../components/StatCards/StatCards";
@@ -101,6 +101,7 @@ function AdminDashboard() {
   }, []);
 
   // Function to save interest data to Firebase
+  // eslint-disable-next-line no-unused-vars
   const saveInterestToFirebase = async (customer, availableBalance, interest6Months, interest12Months) => {
     try {
       const interestRef = ref(database, `interest/${customer.accountNo}`);
@@ -197,13 +198,12 @@ function AdminDashboard() {
                            customer.agentName?.toLowerCase().includes(search);
                   }).map((customer, index) => {
                     const balance = Number(customer.depositAmount || 0) - Number(customer.withdrawnAmount || 0);
-                    const { rate: interestRate, amount: interestAmount } = calculateTimeBasedInterest(balance, customer.createdDateTimestamp);
-                    const balanceWithInterest = balance + interestAmount;
+                    const { amount: interestAmount } = calculateTimeBasedInterest(balance, customer.createdDateTimestamp);
                     
                     // Calculate months elapsed
-                    const created = new Date(Number(customer.createdDateTimestamp));
-                    const now = new Date();
-                    const monthsElapsed = (now.getFullYear() - created.getFullYear()) * 12 + (now.getMonth() - created.getMonth());
+                    // const created = new Date(Number(customer.createdDateTimestamp));
+                    // const now = new Date();
+                    // const monthsElapsed = (now.getFullYear() - created.getFullYear()) * 12 + (now.getMonth() - created.getMonth());
                     
                     return (
                       <tr key={customer.id}>

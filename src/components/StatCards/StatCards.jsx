@@ -1,6 +1,6 @@
 import React from 'react';
 import { Row, Col, Card } from 'react-bootstrap';
-import { Users, TrendingUp, TrendingDown, DollarSign, Percent } from 'react-feather';
+import { Users, TrendingUp, TrendingDown, DollarSign } from 'react-feather';
 import './StatCards.css';
 
 const StatCards = ({ totalCustomers, totalAmount, totalWithdrawn, netAmount, onCardClick }) => {

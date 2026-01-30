@@ -278,6 +278,7 @@ function CustomersPage() {
   };
 
   // Apply interest to all eligible customers
+  // eslint-disable-next-line no-unused-vars
   const applyInterestToAll = async () => {
     const eligible = filteredCustomers.filter(c => {
       const { rate } = calculateTimeBasedInterest(c.balance, c.createdDateTimestamp);

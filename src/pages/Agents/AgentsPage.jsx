@@ -26,11 +26,9 @@ import {
 function AgentsPage() {
   const [agents, setAgents] = useState([]);
   const [customers, setCustomers] = useState([]);
-  const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddAgentModal, setShowAddAgentModal] = useState(false);
   const [showEditAgentModal, setShowEditAgentModal] = useState(false);
-  const [selectedAgent, setSelectedAgent] = useState(null);
   const [showAgentCustomersModal, setShowAgentCustomersModal] = useState(false);
   const [selectedAgentForCustomers, setSelectedAgentForCustomers] = useState(null);
   const [showViewRoutesModal, setShowViewRoutesModal] = useState(false);

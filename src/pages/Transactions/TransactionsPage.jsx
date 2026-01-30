@@ -16,8 +16,7 @@ import {
   Search,
   Filter,
   Download,
-  DollarSign,
-  CreditCard
+  DollarSign
 } from "react-feather";
 
 function TransactionsPage() {
