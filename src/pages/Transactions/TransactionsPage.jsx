@@ -246,6 +246,7 @@ function TransactionsPage() {
                   <th>Type</th>
                   <th>Amount (₹)</th>
                   <th>Mode</th>
+                  <th>Receiver Number</th>
                   <th>Agent</th>
                   <th>Route</th>
                 </tr>
@@ -274,8 +275,17 @@ function TransactionsPage() {
                       <td>
                         {(t.mode || 'cash').toUpperCase() === 'CASH' ? (
                           <Badge bg="success">CASH</Badge>
+                        ) : (t.mode || 'ONLINE').toUpperCase() === 'ONLINE' ? (
+                          <Badge bg="info">ONLINE</Badge>
                         ) : (
-                          <Badge bg="info">{(t.mode || 'ONLINE').toUpperCase()}</Badge>
+                          <Badge bg="warning">{(t.mode || 'OTHER').toUpperCase()}</Badge>
+                        )}
+                      </td>
+                      <td>
+                        {t.mode?.toLowerCase() === 'online' && t.receiverPhoneNumber ? (
+                          <span className="text-dark fw-semibold">{t.receiverPhoneNumber}</span>
+                        ) : (
+                          <span className="text-muted">-</span>
                         )}
                       </td>
                       <td>{t.agentName || '-'}</td>
@@ -284,7 +294,7 @@ function TransactionsPage() {
                   );
                 }) : (
                   <tr>
-                    <td colSpan="9" className="text-center text-muted py-4">
+                    <td colSpan="10" className="text-center text-muted py-4">
                       <DollarSign size={32} className="mb-2" /><br />
                       No transactions found
                     </td>

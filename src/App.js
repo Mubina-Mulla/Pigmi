@@ -7,11 +7,15 @@ import AdminLogin from './pages/AdminLogin';
 import AdminDashboard from './pages/AdminDashboard';
 import DailyReport from './pages/DailyReport';
 import CustomersPage from './pages/Customers/CustomersPage';
+import CustomerDashboard from './pages/Customers/CustomerDashboard';
 import AgentsPage from './pages/Agents/AgentsPage';
 import TransactionsPage from './pages/Transactions/TransactionsPage';
+import RecycleBinPage from './pages/RecycleBin/RecycleBinPage';
 import PrivateRoute from './components/PrivateRoute';
 import RootRedirect from './components/RootRedirect';
 import AdminLayout from './layouts/AdminLayout';
+import { ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 import './App.css';
 
 function App() {
@@ -20,6 +24,32 @@ function App() {
       <DataProvider>
         <Router>
           <div className="app-container">
+            <ToastContainer
+              position="top-right"
+              autoClose={3000}
+              hideProgressBar={false}
+              newestOnTop={true}
+              closeOnClick
+              rtl={false}
+              pauseOnFocusLoss
+              draggable
+              pauseOnHover
+              theme="light"
+              style={{
+                top: '70px',
+                right: '20px',
+                zIndex: 9999
+              }}
+              toastStyle={{
+                backgroundColor: '#ffffff',
+                color: '#333333',
+                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                borderRadius: '8px',
+                padding: '16px',
+                fontSize: '14px',
+                fontWeight: '500'
+              }}
+            />
             <Routes>
               {/* Root route - smart redirect based on auth state */}
               <Route path="/" element={<RootRedirect />} />
@@ -51,6 +81,18 @@ function App() {
                 }
               />
 
+              {/* Protected Customer Dashboard route */}
+              <Route
+                path="/customers/:accountNo"
+                element={
+                  <PrivateRoute role="admin">
+                    <AdminLayout>
+                      <CustomerDashboard />
+                    </AdminLayout>
+                  </PrivateRoute>
+                }
+              />
+
               {/* Protected Agents route */}
               <Route
                 path="/agents"
@@ -70,6 +112,18 @@ function App() {
                   <PrivateRoute role="admin">
                     <AdminLayout>
                       <TransactionsPage />
+                    </AdminLayout>
+                  </PrivateRoute>
+                }
+              />
+              
+              {/* Protected Recycle Bin route */}
+              <Route
+                path="/recyclebin"
+                element={
+                  <PrivateRoute role="admin">
+                    <AdminLayout>
+                      <RecycleBinPage />
                     </AdminLayout>
                   </PrivateRoute>
                 }

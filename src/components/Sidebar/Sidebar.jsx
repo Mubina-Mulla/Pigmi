@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Nav } from 'react-bootstrap';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { FaUsers, FaUserTie, FaMoneyBillWave, FaTachometerAlt, FaSignOutAlt, FaBars, FaTimes } from 'react-icons/fa';
+import { FaUsers, FaUserTie, FaMoneyBillWave, FaTachometerAlt, FaSignOutAlt, FaBars, FaTimes, FaTrashRestore } from 'react-icons/fa';
 import { useAuth } from '../../context/AuthContext';
 import './Sidebar.css';
 
@@ -61,6 +61,12 @@ const Sidebar = () => {
       label: 'All Transactions',
       icon: <FaMoneyBillWave size={20} />,
       path: '/transactions'
+    },
+    {
+      id: 'recyclebin',
+      label: 'Recycle Bin',
+      icon: <FaTrashRestore size={20} />,
+      path: '/recyclebin'
     }
   ];
 
@@ -92,7 +98,7 @@ const Sidebar = () => {
         
         <div className="sidebar-brand">
         <h4 className="mb-0">Pigmi <span>Admin</span></h4>
-        <small className="text-muted">Management System</small>
+        
       </div>
 
       <Nav className="flex-column sidebar-menu">
@@ -121,9 +127,7 @@ const Sidebar = () => {
         </Nav.Item>
       </Nav>
 
-      <div className="sidebar-footer">
-        <small className="text-muted">© 2026 Pigmi System</small>
-      </div>
+      
     </aside>
     </>
   );

@@ -33,7 +33,7 @@ const StatCards = ({ totalCustomers, totalAmount, totalWithdrawn, netAmount, onC
       id: 'balance',
       title: 'Net Balance',
       value: netAmount,
-      icon: <DollarSign size={24} className="text-info" />,
+      icon: <span style={{ fontSize: '24px', fontWeight: 'bold' }} className="text-info">₹</span>,
       bgClass: 'bg-info',
       valuePrefix: '₹'
     }

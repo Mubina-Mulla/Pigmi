@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Container,
   Row,
@@ -11,7 +12,7 @@ import {
   Badge,
   InputGroup
 } from "react-bootstrap";
-import { ref, onValue, set, update } from "firebase/database";
+import { ref, onValue, set, update, remove, get } from "firebase/database";
 import { database } from "../../firebase";
 import { generateAccountNumber, generateTransactionId } from "../../utils/dataValidation";
 import {
@@ -24,16 +25,19 @@ import {
   Users,
   TrendingUp,
   CheckCircle,
-  XCircle
+  XCircle,
+  Trash2
 } from "react-feather";
+import { toast } from 'react-toastify';
 
 function CustomersPage() {
+  const navigate = useNavigate();
   const [customers, setCustomers] = useState([]);
   const [agents, setAgents] = useState([]);
+  const [routes, setRoutes] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedRoute, setSelectedRoute] = useState("All Routes");
   const [showAddCustomerModal, setShowAddCustomerModal] = useState(false);
   const [showAddPaymentModal, setShowAddPaymentModal] = useState(false);
   const [selectedCustomerForPayment, setSelectedCustomerForPayment] = useState(null);
@@ -63,15 +67,27 @@ function CustomersPage() {
   };
 
   const [newCustomer, setNewCustomer] = useState({
+    accountNo: "",
     name: "",
     mobile: "",
+    address: "",
+    village: "",
+    aadharNumber: "",
     agentName: "",
     initialDeposit: ""
+  });
+
+  const [validationErrors, setValidationErrors] = useState({
+    accountNo: "",
+    mobile: "",
+    aadhar: ""
   });
 
   const [editCustomer, setEditCustomer] = useState({
     name: "",
     mobile: "",
+    address: "",
+    aadharNumber: "",
     agentName: "",
     route: []
   });
@@ -81,7 +97,8 @@ function CustomersPage() {
     amount: "",
     note: "",
     mode: "cash",
-    method: ""
+    method: "",
+    receiverPhoneNumber: ""
   });
 
   // Fetch data
@@ -89,6 +106,24 @@ function CustomersPage() {
     const customersRef = ref(database, "customers");
     const agentsRef = ref(database, "agents");
     const transactionsRef = ref(database, "transactions");
+    const routesRef = ref(database, "routes");
+
+    // Fetch routes with villages
+    onValue(routesRef, (snapshot) => {
+      const routeData = snapshot.val() || {};
+      const routeList = [];
+      Object.entries(routeData).forEach(([routeName, villagesData]) => {
+        // villagesData is directly an array or object with numeric keys
+        const villages = Array.isArray(villagesData) 
+          ? villagesData 
+          : Object.values(villagesData || {});
+        routeList.push({
+          name: routeName,
+          villages: villages
+        });
+      });
+      setRoutes(routeList);
+    });
 
     onValue(agentsRef, (snapshot) => {
       const agentData = snapshot.val() || {};
@@ -97,6 +132,7 @@ function CustomersPage() {
         if (agentInfo) {
           agentList.push({
             name: agentName,
+            address: agentInfo.address || "",
             mobile: agentInfo.mobile || "",
             password: agentInfo.password || "",
             route: Array.isArray(agentInfo.route) ? agentInfo.route : (agentInfo.route ? [agentInfo.route] : []),
@@ -131,6 +167,9 @@ function CustomersPage() {
             accountNo: customerInfo.accountNo || customerId,
             name: customerInfo.name || customerInfo.customerName || "Unknown",
             mobile: customerInfo.mobile || customerInfo.mobileNumber || customerInfo.phone || "",
+            village: customerInfo.village || "",
+            address: customerInfo.address || "",
+            aadharNumber: customerInfo.aadharNumber || "",
             totalAmount: totalAmount,
             withdrawnAmount: withdrawnAmount,
             balance: balance,
@@ -176,26 +215,165 @@ function CustomersPage() {
     });
   }, []);
 
-  const allRoutes = ["All Routes", ...new Set(customers.map(c => c.route).filter(Boolean))];
   const filteredCustomers = customers.filter(c => {
+    const routeString = Array.isArray(c.route) ? c.route.join(', ').toLowerCase() : (c.route || '').toLowerCase();
     const matchesSearch = searchTerm === "" || 
       c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       c.mobile.includes(searchTerm) ||
       c.accountNo.includes(searchTerm) ||
-      c.agentName.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesRoute = selectedRoute === "All Routes" || c.route === selectedRoute;
-    return matchesSearch && matchesRoute;
+      c.agentName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      routeString.includes(searchTerm.toLowerCase());
+    return matchesSearch;
   });
+
+  // Validation functions
+  const validateAccountNo = (accountNo) => {
+    const accountNoRegex = /^\d{9}$/;
+    if (!accountNo) return "Account number is required";
+    if (!accountNoRegex.test(accountNo)) return "Account number must be exactly 9 digits";
+    return "";
+  };
+
+  const validateMobile = (mobile) => {
+    const mobileRegex = /^[6-9]\d{9}$/;
+    if (!mobile) return "Mobile number is required";
+    if (!mobileRegex.test(mobile)) return "Enter valid 10-digit mobile number starting with 6-9";
+    return "";
+  };
+
+  const validateAadhar = (aadhar) => {
+    const aadharRegex = /^[2-9]{1}[0-9]{11}$/;
+    if (!aadhar) return "Aadhar number is required";
+    if (!aadharRegex.test(aadhar)) return "Enter valid 12-digit Aadhar number";
+    return "";
+  };
+
+  const handleAccountNoChange = (value) => {
+    setNewCustomer({...newCustomer, accountNo: value});
+    setValidationErrors({...validationErrors, accountNo: validateAccountNo(value)});
+  };
+
+  const handleMobileChange = (value) => {
+    setNewCustomer({...newCustomer, mobile: value});
+    setValidationErrors({...validationErrors, mobile: validateMobile(value)});
+  };
+
+  const handleAadharChange = (value) => {
+    setNewCustomer({...newCustomer, aadharNumber: value});
+    setValidationErrors({...validationErrors, aadhar: validateAadhar(value)});
+  };
+
+  // Generate next account number with year prefix (e.g., 202500001)
+  const generateNextAccountNumber = async () => {
+    const currentYear = new Date().getFullYear();
+    const yearPrefix = currentYear.toString();
+    
+    // Get all customers with current year prefix
+    const customersWithYearPrefix = customers.filter(c => 
+      c.accountNo && c.accountNo.toString().startsWith(yearPrefix)
+    );
+    
+    // Find the highest number
+    let maxNumber = 0;
+    customersWithYearPrefix.forEach(c => {
+      const accountNo = c.accountNo.toString();
+      if (accountNo.length === 9) { // Format: YYYY + 5 digits
+        const numberPart = parseInt(accountNo.substring(4));
+        if (numberPart > maxNumber) {
+          maxNumber = numberPart;
+        }
+      }
+    });
+    
+    // Generate next number
+    const nextNumber = (maxNumber + 1).toString().padStart(5, '0');
+    return yearPrefix + nextNumber;
+  };
+
+  // Open add customer modal and auto-generate account number
+  const handleOpenAddCustomerModal = async () => {
+    const nextAccountNo = await generateNextAccountNumber();
+    setNewCustomer({
+      accountNo: nextAccountNo,
+      name: "",
+      mobile: "",
+      address: "",
+      village: "",
+      aadharNumber: "",
+      agentName: "",
+      initialDeposit: ""
+    });
+    setValidationErrors({ accountNo: "", mobile: "", aadhar: "" });
+    setShowAddCustomerModal(true);
+  };
+
+  // Auto-assign agent based on address (district/route name)
+  const handleAddressChange = (address) => {
+    setNewCustomer({...newCustomer, address: address});
+    
+    // Parse address and find matching agent based on any route/district name
+    const addressLower = address.toLowerCase();
+    
+    const matchingAgent = agents.find(agent => {
+      if (Array.isArray(agent.route)) {
+        return agent.route.some(route => 
+          addressLower.includes(route.toLowerCase().trim())
+        );
+      }
+      return agent.route && addressLower.includes(agent.route.toLowerCase().trim());
+    });
+    
+    if (matchingAgent) {
+      setNewCustomer(prev => ({...prev, address: address, agentName: matchingAgent.name}));
+    } else {
+      setNewCustomer(prev => ({...prev, address: address}));
+    }
+  };
 
   const handleAddCustomer = async (e) => {
     e.preventDefault();
-    const accountNo = generateAccountNumber();
+    
+    // Validate before submission
+    const accountNoError = validateAccountNo(newCustomer.accountNo);
+    const mobileError = validateMobile(newCustomer.mobile);
+    const aadharError = validateAadhar(newCustomer.aadharNumber);
+    
+    if (accountNoError || mobileError || aadharError) {
+      setValidationErrors({ accountNo: accountNoError, mobile: mobileError, aadhar: aadharError });
+      return;
+    }
+    
+    // Validate initial deposit
+    const initialDeposit = parseFloat(newCustomer.initialDeposit);
+    if (!newCustomer.initialDeposit || isNaN(initialDeposit) || initialDeposit < 200) {
+      toast.error('Please enter a valid initial deposit amount. Minimum deposit is ₹200');
+      return;
+    }
+    
+    // Check if account number already exists
+    const existingCustomer = customers.find(c => c.accountNo === newCustomer.accountNo);
+    if (existingCustomer) {
+      toast.error('Account number already exists. Please use a different account number.');
+      setValidationErrors({...validationErrors, accountNo: 'Account number already exists'});
+      return;
+    }
+    
+    const accountNo = newCustomer.accountNo;
+    
+    // Find the specific route that contains the customer's village
+    const customerRoute = routes.find(route => 
+      route.villages.includes(newCustomer.village)
+    )?.name || '';
+    
     const customerData = {
       accountNo,
       name: newCustomer.name,
       mobile: newCustomer.mobile,
+      address: newCustomer.address,
+      village: newCustomer.village,
+      aadharNumber: newCustomer.aadharNumber,
       agentName: newCustomer.agentName,
-      route: agents.find(a => a.name === newCustomer.agentName)?.route || [],
+      route: customerRoute,
       totalAmount: parseFloat(newCustomer.initialDeposit) || 0,
       withdrawnAmount: 0,
       createdDate: Date.now(),
@@ -215,13 +393,27 @@ function CustomersPage() {
         note: "Initial deposit",
         addedBy: "admin"
       };
-      customerData.transactions = { [transactionId]: transaction };
       await set(ref(database, `transactions/${accountNo}/${transactionId}`), transaction);
     }
 
+    // Save customer data
     await set(ref(database, `customers/${accountNo}`), customerData);
+    
+    // Increment global count
+    const globalCountRef = ref(database, 'globalCount');
+    const globalCountSnapshot = await get(globalCountRef);
+    const currentCount = globalCountSnapshot.exists() ? globalCountSnapshot.val() : 0;
+    await set(globalCountRef, currentCount + 1);
+    
+    // Close modal first
     setShowAddCustomerModal(false);
-    setNewCustomer({ name: "", mobile: "", agentName: "", initialDeposit: "" });
+    setNewCustomer({ accountNo: "", name: "", mobile: "", address: "", village: "", aadharNumber: "", agentName: "", initialDeposit: "" });
+    setValidationErrors({ accountNo: "", mobile: "", aadhar: "" });
+    
+    // Show success message immediately after modal closes
+    setTimeout(() => {
+      toast.success(`Customer ${newCustomer.name} added successfully!`);
+    }, 100);
   };
 
   // Apply interest to a specific customer
@@ -348,6 +540,11 @@ function CustomersPage() {
       note: newPayment.note,
       addedBy: "admin"
     };
+    
+    // Add receiver number if mode is online
+    if (newPayment.mode === "online" && newPayment.receiverPhoneNumber) {
+      transaction.receiverPhoneNumber = newPayment.receiverPhoneNumber;
+    }
 
     await set(ref(database, `transactions/${selectedCustomerForPayment.accountNo}/${transactionId}`), transaction);
     
@@ -360,8 +557,9 @@ function CustomersPage() {
     updates[`customers/${selectedCustomerForPayment.accountNo}/lastUpdated`] = Date.now();
     
     await update(ref(database), updates);
+    toast.success(`${newPayment.type === 'deposit' ? 'Deposit' : 'Withdrawal'} of ₹${newPayment.amount} added successfully!`);
     setShowAddPaymentModal(false);
-    setNewPayment({ type: "deposit", amount: "", note: "", mode: "cash", method: "" });
+    setNewPayment({ type: "deposit", amount: "", note: "", mode: "cash", method: "", receiverPhoneNumber: "" });
     setSelectedCustomerForPayment(null);
   };
 
@@ -370,29 +568,44 @@ function CustomersPage() {
     setEditCustomer({
       name: customer.name,
       mobile: customer.mobile,
+      address: customer.address || "",
+      aadharNumber: customer.aadharNumber || "",
       agentName: customer.agentName,
-      route: Array.isArray(customer.route) ? customer.route : [customer.route]
+      route: Array.isArray(customer.route) ? customer.route[0] || '' : (customer.route || '')
     });
     setShowEditCustomerModal(true);
   };
 
   const handleUpdateCustomer = async (e) => {
     e.preventDefault();
+    
+    // Validate mobile and aadhar if they are changed
+    const mobileError = validateMobile(editCustomer.mobile);
+    const aadharError = editCustomer.aadharNumber ? validateAadhar(editCustomer.aadharNumber) : "";
+    
+    if (mobileError || aadharError) {
+      toast.error(`Please fix validation errors: ${mobileError || ''} ${aadharError || ''}`);
+      return;
+    }
+    
     const updates = {};
     updates[`customers/${selectedCustomerForEdit.accountNo}/name`] = editCustomer.name;
     updates[`customers/${selectedCustomerForEdit.accountNo}/mobile`] = editCustomer.mobile;
+    updates[`customers/${selectedCustomerForEdit.accountNo}/address`] = editCustomer.address;
+    updates[`customers/${selectedCustomerForEdit.accountNo}/aadharNumber`] = editCustomer.aadharNumber;
     updates[`customers/${selectedCustomerForEdit.accountNo}/agentName`] = editCustomer.agentName;
     updates[`customers/${selectedCustomerForEdit.accountNo}/route`] = editCustomer.route;
     updates[`customers/${selectedCustomerForEdit.accountNo}/lastUpdated`] = Date.now();
     
     await update(ref(database), updates);
+    toast.success(`Customer ${editCustomer.name} updated successfully!`);
     setShowEditCustomerModal(false);
     setSelectedCustomerForEdit(null);
   };
 
   const handlePaymentClick = (customer) => {
     setSelectedCustomerForPayment(customer);
-    setNewPayment({ type: "deposit", amount: "", note: "", mode: "cash", method: "" });
+    setNewPayment({ type: "deposit", amount: "", note: "", mode: "cash", method: "", receiverPhoneNumber: "" });
     setShowAddPaymentModal(true);
   };
 
@@ -406,11 +619,59 @@ function CustomersPage() {
     setShowCustomerDetailsModal(true);
   };
 
+  const handleDeleteCustomer = async (customer) => {
+    const confirmMessage = `Are you sure you want to delete customer ${customer.name}?\n\nThis will move the customer to Recycle Bin for 5 days.`;
+    
+    if (window.confirm(confirmMessage)) {
+      try {
+        // Get all customer data including transactions
+        const customerDataSnapshot = await get(ref(database, `customers/${customer.accountNo}`));
+        const transactionsSnapshot = await get(ref(database, `transactions/${customer.accountNo}`));
+        const transactionCountSnapshot = await get(ref(database, `customerTransactionCount/${customer.accountNo}`));
+        
+        // Prepare deleted customer object
+        const deletedCustomer = {
+          data: customerDataSnapshot.val(),
+          transactions: transactionsSnapshot.exists() ? transactionsSnapshot.val() : null,
+          transactionCount: transactionCountSnapshot.exists() ? transactionCountSnapshot.val() : null,
+          deletedAt: Date.now(),
+          deletedBy: 'admin'
+        };
+        
+        // Move to recycle bin
+        await set(ref(database, `deletedCustomers/${customer.accountNo}`), deletedCustomer);
+        
+        // Delete customer transactions
+        await remove(ref(database, `transactions/${customer.accountNo}`));
+        
+        // Delete customer transaction count
+        await remove(ref(database, `customerTransactionCount/${customer.accountNo}`));
+        
+        // Delete customer data
+        await remove(ref(database, `customers/${customer.accountNo}`));
+        
+        // Decrement global count
+        const globalCountRef = ref(database, 'globalCount');
+        const globalCountSnapshot = await get(globalCountRef);
+        if (globalCountSnapshot.exists()) {
+          const currentCount = globalCountSnapshot.val() || 0;
+          const newCount = Math.max(0, currentCount - 1);
+          await set(globalCountRef, newCount);
+        }
+        
+        toast.success(`Customer ${customer.name} moved to Recycle Bin. It will be kept for 5 days.`);
+      } catch (error) {
+        toast.error('Error deleting customer: ' + error.message);
+      }
+    }
+  };
+
   const exportToCSV = () => {
     let csvContent = "data:text/csv;charset=utf-8,";
-    csvContent += "Account No,Name,Mobile Number,Deposit Amount,Withdrawn Amount,Balance,Agent,Route,Status,Created Date\n";
+    csvContent += "Account No,Name,Mobile Number,Address,Aadhar Number,Deposit Amount,Withdrawn Amount,Balance,Agent,Route,Status,Created Date\n";
     filteredCustomers.forEach(c => {
-      csvContent += `${c.accountNo},${c.name},${c.mobile},${c.totalAmount || 0},${c.withdrawnAmount || 0},${c.balance || 0},${c.agentName},${c.route},${c.status || 'Active'},${c.createdAt}\n`;
+      const address = (c.address || '').replace(/,/g, ';'); // Replace commas in address to avoid CSV issues
+      csvContent += `${c.accountNo},${c.name},${c.mobile},${address},${c.aadharNumber || ''},${c.totalAmount || 0},${c.withdrawnAmount || 0},${c.balance || 0},${c.agentName},${c.route},${c.status || 'Active'},${c.createdAt}\n`;
     });
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
@@ -449,22 +710,14 @@ function CustomersPage() {
               <InputGroup>
                 <InputGroup.Text><Search size={16} /></InputGroup.Text>
                 <Form.Control 
-                  placeholder="Search by name, mobile, account no, or agent..." 
+                  placeholder="Search by name, mobile, account no, agent, or route..." 
                   value={searchTerm} 
                   onChange={e => setSearchTerm(e.target.value)}
                 />
               </InputGroup>
             </Col>
-            <Col md={3}>
-              <InputGroup>
-                <InputGroup.Text><Filter size={16} /></InputGroup.Text>
-                <Form.Select value={selectedRoute} onChange={e => setSelectedRoute(e.target.value)}>
-                  {allRoutes.map((r, i) => <option key={i}>{r}</option>)}
-                </Form.Select>
-              </InputGroup>
-            </Col>
-            <Col md={3} className="d-flex justify-content-end gap-2">
-              <Button variant="primary" onClick={() => setShowAddCustomerModal(true)} size="sm">
+            <Col md={6} className="d-flex justify-content-end gap-2">
+              <Button variant="primary" onClick={handleOpenAddCustomerModal} size="sm">
                 <Plus size={14} className="me-1" />
                 Add Customer
               </Button>
@@ -479,15 +732,15 @@ function CustomersPage() {
             <Table hover>
               <thead className="bg-light">
                 <tr>
-                  <th>Account No</th>
-                  <th>Name</th>
-                  <th>Mobile Number</th>
-                  <th>Deposit Amount</th>
-                  <th>Withdrawn Amount</th>
+                  <th>Ac No</th>
+                  <th>Customer</th>
+                  <th>Address</th>
+                  <th>Aadhar No</th>
+                  <th>Deposit Amt</th>
+                  <th>Withdrawn Amt</th>
                   <th>Balance (with Interest)</th>
                   <th>Interest Status</th>
-                  <th>Agent</th>
-                  <th>Route</th>
+                  <th>Agent & Route</th>
                   <th>Created Date</th>
                   <th>Status</th>
                   <th>Actions</th>
@@ -510,10 +763,31 @@ function CustomersPage() {
                   const monthsElapsed = (now.getFullYear() - created.getFullYear()) * 12 + (now.getMonth() - created.getMonth());
                   
                   return (
-                  <tr key={c.id} className="align-middle">
+                  <tr 
+                    key={c.id} 
+                    className="align-middle" 
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => navigate(`/customers/${c.accountNo}`)}
+                  >
                     <td><Badge bg="outline-primary" text="dark">{c.accountNo || c.customerId}</Badge></td>
-                    <td className="fw-semibold">{c.name}</td>
-                    <td>{c.mobile || c.mobileNumber}</td>
+                    <td>
+                      <div className="fw-semibold">{c.name}</div>
+                      <small className="text-muted">{c.mobile || c.mobileNumber}</small>
+                    </td>
+                    <td>
+                      <small className="text-muted">
+                        {c.address || <span className="text-danger">Not provided</span>}
+                      </small>
+                    </td>
+                    <td>
+                      <small className="text-muted">
+                        {c.aadharNumber ? (
+                          <span className="font-monospace">{c.aadharNumber}</span>
+                        ) : (
+                          <span className="text-danger">Not provided</span>
+                        )}
+                      </small>
+                    </td>
                     <td className="text-success fw-bold">₹{(c.totalAmount || 0).toLocaleString()}</td>
                     <td className="text-danger fw-bold">₹{(c.withdrawnAmount || 0).toLocaleString()}</td>
                     <td className="text-primary fw-bold">
@@ -569,8 +843,14 @@ function CustomersPage() {
                         </Badge>
                       )}
                     </td>
-                    <td>{c.agentName}</td>
-                    <td><Badge bg="outline-info" text="dark">{Array.isArray(c.route) ? c.route.join(', ') : c.route}</Badge></td>
+                    <td>
+                      <div>{c.agentName}</div>
+                      <small>
+                        <Badge bg="outline-info" text="dark" style={{ fontSize: '0.7rem' }}>
+                          {Array.isArray(c.route) ? c.route.join(', ') : (c.route || 'N/A')}
+                        </Badge>
+                      </small>
+                    </td>
                     <td className="text-muted"><small>{c.createdAt || c.createdDateFormatted}</small></td>
                     <td>
                       <Badge bg="success">
@@ -578,24 +858,31 @@ function CustomersPage() {
                       </Badge>
                     </td>
                     <td>
-                      <div className="d-flex gap-1 flex-wrap">
-                        {rate > 0 && !c.interestApplied && (
-                          <Button 
-                            variant="success" 
-                            size="sm" 
-                            onClick={() => applyInterestToCustomer(c)} 
-                            title="Apply Interest"
-                          >
-                            <TrendingUp size={14} />
+                      <div className="d-flex flex-column gap-1">
+                        <div className="d-flex gap-1">
+                          {rate > 0 && !c.interestApplied && (
+                            <Button 
+                              variant="success" 
+                              size="sm" 
+                              onClick={() => applyInterestToCustomer(c)} 
+                              title="Apply Interest"
+                            >
+                              <TrendingUp size={14} />
+                            </Button>
+                          )}
+                          <Button variant="outline-success" size="sm" onClick={() => handlePaymentClick(c)} title="Add Payment">₹</Button>
+                          <Button variant="outline-primary" size="sm" onClick={() => handleCustomerClick(c)} title="View Details">
+                            <Eye size={14} />
                           </Button>
-                        )}
-                        <Button variant="outline-success" size="sm" onClick={() => handlePaymentClick(c)} title="Add Payment">₹</Button>
-                        <Button variant="outline-warning" size="sm" onClick={() => handleEditCustomer(c)} title="Edit Customer & Route">
-                          <Edit size={14} />
-                        </Button>
-                        <Button variant="outline-primary" size="sm" onClick={() => handleCustomerClick(c)} title="View Details">
-                          <Eye size={14} />
-                        </Button>
+                        </div>
+                        <div className="d-flex gap-1">
+                          <Button variant="outline-warning" size="sm" onClick={() => handleEditCustomer(c)} title="Edit Customer & Route">
+                            <Edit size={14} />
+                          </Button>
+                          <Button variant="outline-danger" size="sm" onClick={() => handleDeleteCustomer(c)} title="Delete Customer">
+                            <Trash2 size={14} />
+                          </Button>
+                        </div>
                       </div>
                     </td>
                   </tr>
@@ -615,31 +902,221 @@ function CustomersPage() {
       </Card>
 
       {/* Add Customer Modal */}
-      <Modal show={showAddCustomerModal} onHide={() => setShowAddCustomerModal(false)} centered>
+      <Modal show={showAddCustomerModal} onHide={() => setShowAddCustomerModal(false)} centered size="lg" dialogClassName="custom-modal-width">
         <Modal.Header closeButton>
           <Modal.Title>Add New Customer</Modal.Title>
         </Modal.Header>
         <Form onSubmit={handleAddCustomer}>
-          <Modal.Body>
+          <Modal.Body style={{ maxHeight: '70vh', overflowY: 'auto' }}>
+            <Row>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Account Number</Form.Label>
+                  <Form.Control 
+                    type="text"
+                    value={newCustomer.accountNo} 
+                    readOnly
+                    style={{ backgroundColor: '#e9ecef', cursor: 'not-allowed' }}
+                    required 
+                  />
+                  <Form.Text className="text-muted">
+                    Auto-generated account number
+                  </Form.Text>
+                </Form.Group>
+              </Col>
+              
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Customer Name</Form.Label>
+                  <Form.Control 
+                    value={newCustomer.name} 
+                    onChange={e => setNewCustomer({...newCustomer, name: e.target.value})} 
+                    required 
+                  />
+                </Form.Group>
+              </Col>
+            </Row>
+            
+            <Row>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Mobile Number</Form.Label>
+                  <Form.Control 
+                    type="text"
+                    value={newCustomer.mobile} 
+                    onChange={e => handleMobileChange(e.target.value)}
+                    maxLength="10"
+                    pattern="[6-9][0-9]{9}"
+                    isInvalid={!!validationErrors.mobile}
+                    required 
+                  />
+                  <Form.Control.Feedback type="invalid">
+                    {validationErrors.mobile}
+                  </Form.Control.Feedback>
+                  <Form.Text className="text-muted">
+                    10-digit number (6-9)
+                  </Form.Text>
+                </Form.Group>
+              </Col>
+              
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Aadhar Number</Form.Label>
+                  <Form.Control 
+                    type="text"
+                    value={newCustomer.aadharNumber} 
+                    onChange={e => handleAadharChange(e.target.value)}
+                    maxLength="12"
+                    pattern="[2-9][0-9]{11}"
+                    isInvalid={!!validationErrors.aadhar}
+                    required 
+                  />
+                  <Form.Control.Feedback type="invalid">
+                    {validationErrors.aadhar}
+                  </Form.Control.Feedback>
+                  <Form.Text className="text-muted">
+                    12-digit Aadhar number
+                  </Form.Text>
+                </Form.Group>
+              </Col>
+            </Row>
+            
             <Form.Group className="mb-3">
-              <Form.Label>Customer Name</Form.Label>
-              <Form.Control value={newCustomer.name} onChange={e => setNewCustomer({...newCustomer, name: e.target.value})} required />
+              <Form.Label>Address</Form.Label>
+              <Form.Control 
+                as="textarea"
+                rows={2}
+                value={newCustomer.address} 
+                onChange={e => {
+                  const addressValue = e.target.value;
+                  setNewCustomer({...newCustomer, address: addressValue});
+                  
+                  // Auto-suggest village from address
+                  if (addressValue.length > 3) {
+                    const addressLower = addressValue.toLowerCase();
+                    const allVillages = routes.flatMap(route => route.villages);
+                    
+                    // Find village that matches part of the address
+                    const matchedVillage = allVillages.find(village => {
+                      const villageLower = village.toLowerCase();
+                      return addressLower.includes(villageLower) || 
+                             addressLower.includes(villageLower.replace(/\s+/g, ''));
+                    });
+                    
+                    if (matchedVillage && matchedVillage !== newCustomer.village) {
+                      setNewCustomer(prev => ({
+                        ...prev, 
+                        address: addressValue,
+                        village: matchedVillage,
+                        agentName: '' // Reset agent when village auto-changes
+                      }));
+                    }
+                  }
+                }} 
+                placeholder="Enter complete address (village will be auto-detected)"
+                required 
+              />
+              {newCustomer.village && (
+                <Form.Text className="text-success">
+                  ✓ Detected village: {newCustomer.village}
+                </Form.Text>
+              )}
             </Form.Group>
+            
             <Form.Group className="mb-3">
-              <Form.Label>Mobile Number</Form.Label>
-              <Form.Control value={newCustomer.mobile} onChange={e => setNewCustomer({...newCustomer, mobile: e.target.value})} required />
+              <Form.Label>Village</Form.Label>
+              <Form.Control
+                list="villages-list"
+                placeholder="Type or select village name (auto-detected from address)"
+                value={newCustomer.village}
+                onChange={(e) => {
+                  const selectedVillage = e.target.value;
+                  setNewCustomer({...newCustomer, village: selectedVillage, agentName: ''});
+                }}
+                required
+              />
+              <datalist id="villages-list">
+                {routes.flatMap(route => 
+                  route.villages.map(village => (
+                    <option key={`${route.name}-${village}`} value={village}>
+                      {village} ({route.name})
+                    </option>
+                  ))
+                )}
+              </datalist>
+              <Form.Text className="text-muted">
+                Auto-detected from address or type/select manually
+              </Form.Text>
             </Form.Group>
-            <Form.Group className="mb-3">
-              <Form.Label>Select Agent</Form.Label>
-              <Form.Select value={newCustomer.agentName} onChange={e => setNewCustomer({...newCustomer, agentName: e.target.value})} required>
-                <option value="">Choose agent...</option>
-                {agents.map(a => <option key={a.name} value={a.name}>{a.name}</option>)}
-              </Form.Select>
-            </Form.Group>
-            <Form.Group className="mb-3">
-              <Form.Label>Initial Deposit (Optional)</Form.Label>
-              <Form.Control type="number" value={newCustomer.initialDeposit} onChange={e => setNewCustomer({...newCustomer, initialDeposit: e.target.value})} />
-            </Form.Group>
+            
+            <Row>
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Select Agent</Form.Label>
+                  <Form.Control
+                    list="agents-list"
+                    placeholder="Type or select agent name"
+                    value={newCustomer.agentName}
+                    onChange={(e) => setNewCustomer({...newCustomer, agentName: e.target.value})}
+                    required
+                  />
+                  <datalist id="agents-list">
+                    {newCustomer.village ? (
+                      agents.filter(agent => {
+                        // Find routes that contain the selected village
+                        const matchingRoutes = routes.filter(route => 
+                          route.villages.includes(newCustomer.village)
+                        );
+                        // Check if agent has any of those routes assigned
+                        return matchingRoutes.some(route => 
+                          Array.isArray(agent.route) && agent.route.includes(route.name)
+                        );
+                      }).map(a => (
+                        <option key={a.name} value={a.name}>
+                          {a.name} - Routes: {a.route.join(', ')}
+                        </option>
+                      ))
+                    ) : (
+                      agents.map(a => (
+                        <option key={a.name} value={a.name}>
+                          {a.name} - Routes: {a.route.join(', ')}
+                        </option>
+                      ))
+                    )}
+                  </datalist>
+                  <Form.Text className="text-muted">
+                    {newCustomer.village 
+                      ? `✓ Filtered agents for ${newCustomer.village} (${agents.filter(agent => {
+                          const matchingRoutes = routes.filter(route => 
+                            route.villages.includes(newCustomer.village)
+                          );
+                          return matchingRoutes.some(route => 
+                            Array.isArray(agent.route) && agent.route.includes(route.name)
+                          );
+                        }).length} available)` 
+                      : 'Village will be auto-detected from address or type manually'}
+                  </Form.Text>
+                </Form.Group>
+              </Col>
+              
+              <Col md={6}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Initial Deposit</Form.Label>
+                  <Form.Control 
+                    type="number" 
+                    step="0.01"
+                    min="200"
+                    value={newCustomer.initialDeposit} 
+                    onChange={e => setNewCustomer({...newCustomer, initialDeposit: e.target.value})} 
+                    required
+                    placeholder="Enter initial deposit amount"
+                  />
+                  <Form.Text className="text-muted">
+                    Minimum deposit: ₹200.00
+                  </Form.Text>
+                </Form.Group>
+              </Col>
+            </Row>
           </Modal.Body>
           <Modal.Footer>
             <Button variant="secondary" onClick={() => setShowAddCustomerModal(false)}>Cancel</Button>
@@ -673,12 +1150,31 @@ function CustomersPage() {
             </Form.Group>
             <Form.Group className="mb-3">
               <Form.Label>Mode</Form.Label>
-              <Form.Select value={newPayment.mode} onChange={e => setNewPayment({...newPayment, mode: e.target.value})}>
+              <Form.Select value={newPayment.mode} onChange={e => setNewPayment({...newPayment, mode: e.target.value, receiverPhoneNumber: ""})}>
                 <option value="cash">Cash</option>
                 <option value="online">Online</option>
                 <option value="check">Check</option>
               </Form.Select>
             </Form.Group>
+            
+            {newPayment.mode === "online" && (
+              <Form.Group className="mb-3">
+                <Form.Label>Receiver Phone Number</Form.Label>
+                <Form.Control 
+                  type="text"
+                  placeholder="Enter receiver's phone number"
+                  value={newPayment.receiverPhoneNumber} 
+                  onChange={e => setNewPayment({...newPayment, receiverPhoneNumber: e.target.value})}
+                  maxLength="15"
+                  pattern="[0-9]*"
+                  required
+                />
+                <Form.Text className="text-muted">
+                  Enter the receiver's phone number for online transaction
+                </Form.Text>
+              </Form.Group>
+            )}
+            
             <Form.Group className="mb-3">
               <Form.Label>Note</Form.Label>
               <Form.Control as="textarea" value={newPayment.note} onChange={e => setNewPayment({...newPayment, note: e.target.value})} />
@@ -702,10 +1198,47 @@ function CustomersPage() {
               <Form.Label>Customer Name</Form.Label>
               <Form.Control value={editCustomer.name} onChange={e => setEditCustomer({...editCustomer, name: e.target.value})} required />
             </Form.Group>
+            
             <Form.Group className="mb-3">
               <Form.Label>Mobile Number</Form.Label>
-              <Form.Control value={editCustomer.mobile} onChange={e => setEditCustomer({...editCustomer, mobile: e.target.value})} required />
+              <Form.Control 
+                type="text"
+                value={editCustomer.mobile} 
+                onChange={e => setEditCustomer({...editCustomer, mobile: e.target.value})} 
+                maxLength="10"
+                pattern="[6-9][0-9]{9}"
+                required 
+              />
+              <Form.Text className="text-muted">
+                Enter 10-digit mobile number starting with 6-9
+              </Form.Text>
             </Form.Group>
+            
+            <Form.Group className="mb-3">
+              <Form.Label>Address</Form.Label>
+              <Form.Control 
+                as="textarea"
+                rows={2}
+                value={editCustomer.address} 
+                onChange={e => setEditCustomer({...editCustomer, address: e.target.value})} 
+                placeholder="Enter complete address"
+              />
+            </Form.Group>
+            
+            <Form.Group className="mb-3">
+              <Form.Label>Aadhar Number</Form.Label>
+              <Form.Control 
+                type="text"
+                value={editCustomer.aadharNumber} 
+                onChange={e => setEditCustomer({...editCustomer, aadharNumber: e.target.value})} 
+                maxLength="12"
+                pattern="[2-9][0-9]{11}"
+              />
+              <Form.Text className="text-muted">
+                Enter 12-digit Aadhar number
+              </Form.Text>
+            </Form.Group>
+            
             <Form.Group className="mb-3">
               <Form.Label>Select Agent</Form.Label>
               <Form.Select value={editCustomer.agentName} onChange={e => setEditCustomer({...editCustomer, agentName: e.target.value})} required>
@@ -729,13 +1262,49 @@ function CustomersPage() {
         <Modal.Body>
           {selectedCustomerDetails && (
             <div>
-              <h5>{selectedCustomerDetails.name}</h5>
-              <p><strong>Account No:</strong> {selectedCustomerDetails.accountNo}</p>
-              <p><strong>Mobile:</strong> {selectedCustomerDetails.mobile}</p>
-              <p><strong>Agent:</strong> {selectedCustomerDetails.agentName}</p>
-              <p><strong>Total Deposits:</strong> ₹{(selectedCustomerDetails.totalAmount || 0).toLocaleString()}</p>
-              <p><strong>Total Withdrawn:</strong> ₹{(selectedCustomerDetails.withdrawnAmount || 0).toLocaleString()}</p>
-              <p><strong>Balance:</strong> ₹{(selectedCustomerDetails.balance || 0).toLocaleString()}</p>
+              <h5 className="mb-3">{selectedCustomerDetails.name}</h5>
+              
+              <Row className="mb-3">
+                <Col md={6}>
+                  <p className="mb-2"><strong>Account No:</strong> {selectedCustomerDetails.accountNo}</p>
+                  <p className="mb-2"><strong>Mobile:</strong> {selectedCustomerDetails.mobile}</p>
+                  <p className="mb-2"><strong>Aadhar Number:</strong> {selectedCustomerDetails.aadharNumber || 'Not provided'}</p>
+                </Col>
+                <Col md={6}>
+                  <p className="mb-2"><strong>Agent:</strong> {selectedCustomerDetails.agentName}</p>
+                  <p className="mb-2"><strong>Route:</strong> {Array.isArray(selectedCustomerDetails.route) ? selectedCustomerDetails.route.join(', ') : selectedCustomerDetails.route}</p>
+                  <p className="mb-2"><strong>Status:</strong> <Badge bg="success">{selectedCustomerDetails.status || 'Active'}</Badge></p>
+                </Col>
+              </Row>
+              
+              <div className="mb-3">
+                <p className="mb-2"><strong>Address:</strong></p>
+                <p className="text-muted">{selectedCustomerDetails.address || 'Not provided'}</p>
+              </div>
+              
+              <Row className="mb-3">
+                <Col md={4}>
+                  <p className="mb-2"><strong>Total Deposits:</strong></p>
+                  <h6 className="text-success">₹{(selectedCustomerDetails.totalAmount || 0).toLocaleString()}</h6>
+                </Col>
+                <Col md={4}>
+                  <p className="mb-2"><strong>Total Withdrawn:</strong></p>
+                  <h6 className="text-danger">₹{(selectedCustomerDetails.withdrawnAmount || 0).toLocaleString()}</h6>
+                </Col>
+                <Col md={4}>
+                  <p className="mb-2"><strong>Balance:</strong></p>
+                  <h6 className="text-primary">₹{(selectedCustomerDetails.balance || 0).toLocaleString()}</h6>
+                </Col>
+              </Row>
+              
+              <div className="mb-3">
+                <p className="mb-2"><strong>Created Date:</strong> {selectedCustomerDetails.createdAt || selectedCustomerDetails.createdDateFormatted}</p>
+                <p className="mb-2"><strong>Payment Method:</strong> {selectedCustomerDetails.paymentMethod || 'Cash'}</p>
+                {selectedCustomerDetails.upiId && (
+                  <p className="mb-2"><strong>UPI ID:</strong> {selectedCustomerDetails.upiId}</p>
+                )}
+              </div>
+              
               <hr />
               <h6>Recent Transactions</h6>
               {selectedCustomerDetails.transactions && selectedCustomerDetails.transactions.length > 0 ? (

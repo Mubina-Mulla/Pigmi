@@ -10,7 +10,7 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #f8fafc;
   min-height: 100vh;
 }
 
@@ -42,4 +42,38 @@ code {
 
 ::-webkit-scrollbar-thumb:hover {
   background: #555;
+}
+
+/* Remove blue border from table */
+.table {
+  border-left: none !important;
+  border-right: none !important;
+}
+
+.table-responsive {
+  border-left: none !important;
+  border-right: none !important;
+}
+
+.card {
+  border-left: none !important;
+  border-right: none !important;
+}
+
+/* Remove right border/white line */
+body, html, #root {
+  border: none !important;
+  outline: none !important;
+}
+
+.admin-layout {
+  border-right: none !important;
+}
+
+.admin-main-wrapper {
+  border-right: none !important;
+}
+
+.admin-content {
+  border-right: none !important;
 }

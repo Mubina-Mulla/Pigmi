@@ -22,6 +22,7 @@ import {
   EyeOff,
   Search
 } from "react-feather";
+import { toast } from 'react-toastify';
 
 function AgentsPage() {
   const [agents, setAgents] = useState([]);
@@ -38,9 +39,24 @@ function AgentsPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [routeInput, setRouteInput] = useState('');
+  
+  // Route management states
+  const [routes, setRoutes] = useState([]); // List of all routes with villages
+  const [showManageRoutesModal, setShowManageRoutesModal] = useState(false);
+  const [selectedRouteForEdit, setSelectedRouteForEdit] = useState(null);
+  const [newVillage, setNewVillage] = useState('');
+  const [selectedRoutesForAgent, setSelectedRoutesForAgent] = useState([]);
+  const [newRouteName, setNewRouteName] = useState('');
+  const [tempRoutes, setTempRoutes] = useState([]); // Temporary routes being created in modal
+  const [showEditRouteConfirm, setShowEditRouteConfirm] = useState(false);
+  const [routeToEdit, setRouteToEdit] = useState(null);
+  const [editingRouteName, setEditingRouteName] = useState('');
+  const [editingRouteVillages, setEditingRouteVillages] = useState([]);
+  const [showEditRouteModal, setShowEditRouteModal] = useState(false);
 
   const [newAgent, setNewAgent] = useState({
     name: "",
+    address: "",
     mobile: "",
     password: "",
     route: [],
@@ -48,6 +64,7 @@ function AgentsPage() {
 
   const [editAgent, setEditAgent] = useState({
     name: "",
+    address: "",
     mobile: "",
     password: "",
     route: [],
@@ -57,6 +74,26 @@ function AgentsPage() {
     const agentsRef = ref(database, "agents");
     const customersRef = ref(database, "customers");
     const transactionsRef = ref(database, "transactions");
+    const routesRef = ref(database, "routes");
+
+    // Fetch routes
+    onValue(routesRef, (snapshot) => {
+      const routeData = snapshot.val() || {};
+      console.log('Routes from Firebase:', routeData);
+      const routeList = [];
+      Object.entries(routeData).forEach(([routeName, villagesData]) => {
+        // villagesData is directly an array or object with numeric keys
+        const villages = Array.isArray(villagesData) 
+          ? villagesData 
+          : Object.values(villagesData || {});
+        routeList.push({
+          name: routeName,
+          villages: villages
+        });
+      });
+      console.log('Processed route list:', routeList);
+      setRoutes(routeList);
+    });
 
     onValue(agentsRef, (snapshot) => {
       const agentData = snapshot.val() || {};
@@ -65,6 +102,7 @@ function AgentsPage() {
         if (agentInfo) {
           agentList.push({
             name: agentName,
+            address: agentInfo.address || "",
             mobile: agentInfo.mobile || "",
             password: agentInfo.password || "",
             route: Array.isArray(agentInfo.route) ? agentInfo.route : (agentInfo.route ? [agentInfo.route] : []),
@@ -137,13 +175,15 @@ function AgentsPage() {
   const handleAddAgent = async (e) => {
     e.preventDefault();
     const agentData = {
+      address: newAgent.address,
       mobile: newAgent.mobile,
       password: newAgent.password,
       route: newAgent.route
     };
     await set(ref(database, `agents/${newAgent.name}`), agentData);
+    toast.success(`Agent ${newAgent.name} added successfully!`);
     setShowAddAgentModal(false);
-    setNewAgent({ name: "", mobile: "", password: "", route: [] });
+    setNewAgent({ name: "", address: "", mobile: "", password: "", route: [] });
     setRouteInput('');
   };
 
@@ -164,12 +204,14 @@ function AgentsPage() {
   };
 
   const openEditModal = (agent) => {
+    console.log('Opening edit modal for agent:', agent);
     setSelectedAgent(agent);
     setEditAgent({
       name: agent.name,
+      address: agent.address || "",
       mobile: agent.mobile,
       password: agent.password,
-      route: agent.route
+      route: agent.route || []
     });
     setRouteInput('');
     setShowEditAgentModal(true);
@@ -194,12 +236,206 @@ function AgentsPage() {
   const handleUpdateAgent = async (e) => {
     e.preventDefault();
     const updates = {};
+    updates[`agents/${editAgent.name}/address`] = editAgent.address;
     updates[`agents/${editAgent.name}/mobile`] = editAgent.mobile;
     updates[`agents/${editAgent.name}/password`] = editAgent.password;
     updates[`agents/${editAgent.name}/route`] = editAgent.route;
     await update(ref(database), updates);
+    toast.success(`Agent ${editAgent.name} updated successfully!`);
     setShowEditAgentModal(false);
     setSelectedAgent(null);
+  };
+
+  // Route Management Functions
+  const handleCreateRoute = () => {
+    if (!newRouteName.trim()) {
+      toast.error('Please enter a route name');
+      return;
+    }
+
+    // Check if route already exists in saved routes
+    if (routes.some(r => r.name === newRouteName.trim())) {
+      toast.error('Route name already exists');
+      return;
+    }
+    
+    // Only allow one route to be created at a time
+    setTempRoutes([{ name: newRouteName.trim(), villages: [] }]);
+    setSelectedRouteForEdit(newRouteName.trim());
+    toast.success(`${newRouteName.trim()} created! Add villages and click Save`);
+    setNewRouteName('');
+  };
+
+  const handleAddVillageToTemp = (routeName) => {
+    if (!newVillage.trim()) {
+      toast.error('Please enter a village name');
+      return;
+    }
+    
+    const updatedRoutes = tempRoutes.map(route => {
+      if (route.name === routeName) {
+        return { ...route, villages: [...route.villages, newVillage.trim()] };
+      }
+      return route;
+    });
+    
+    setTempRoutes(updatedRoutes);
+    setNewVillage('');
+    toast.success(`Village "${newVillage}" added!`);
+  };
+
+  const handleRemoveVillageFromTemp = (routeName, village) => {
+    const updatedRoutes = tempRoutes.map(route => {
+      if (route.name === routeName) {
+        return { ...route, villages: route.villages.filter(v => v !== village) };
+      }
+      return route;
+    });
+    setTempRoutes(updatedRoutes);
+  };
+
+  const handleSaveAllRoutes = async () => {
+    if (tempRoutes.length === 0) {
+      toast.error('No routes to save');
+      return;
+    }
+
+    const route = tempRoutes[0]; // Only one route at a time
+    
+    if (route.villages.length === 0) {
+      toast.error('Please add at least one village before saving');
+      return;
+    }
+
+    try {
+      // Save villages as array directly under route
+      await set(ref(database, `routes/${route.name}`), route.villages);
+      
+      // Close modal and reset state
+      setShowManageRoutesModal(false);
+      setTempRoutes([]);
+      setNewRouteName('');
+      setNewVillage('');
+      setSelectedRouteForEdit(null);
+      
+      // Show success toast after modal closes
+      setTimeout(() => {
+        toast.success(`Route "${route.name}" saved successfully!`);
+      }, 100);
+    } catch (error) {
+      console.error('Error saving routes:', error);
+      toast.error('Error saving routes: ' + error.message);
+    }
+  };
+
+  const handleAddVillage = async (routeName) => {
+    if (!newVillage.trim()) return;
+    
+    const route = routes.find(r => r.name === routeName);
+    const updatedVillages = [...(route?.villages || []), newVillage.trim()];
+    
+    await update(ref(database), {
+      [`routes/${routeName}/villages`]: updatedVillages
+    });
+    
+    setNewVillage('');
+    toast.success(`Village "${newVillage}" added to ${routeName}!`);
+  };
+
+  const handleRemoveVillage = async (routeName, village) => {
+    const route = routes.find(r => r.name === routeName);
+    const updatedVillages = route.villages.filter(v => v !== village);
+    
+    await update(ref(database), {
+      [`routes/${routeName}/villages`]: updatedVillages
+    });
+    
+    toast.success(`Village "${village}" removed from ${routeName}!`);
+  };
+
+  const handleDeleteRoute = async (routeName) => {
+    if (window.confirm(`Delete ${routeName} and all its villages?`)) {
+      await remove(ref(database, `routes/${routeName}`));
+      toast.success(`${routeName} deleted successfully!`);
+    }
+  };
+
+  // Edit existing route functions
+  const handleClickExistingRoute = (route) => {
+    setRouteToEdit(route);
+    setShowEditRouteConfirm(true);
+  };
+
+  const handleConfirmEditRoute = () => {
+    setEditingRouteName(routeToEdit.name);
+    setEditingRouteVillages([...routeToEdit.villages]);
+    setShowEditRouteConfirm(false);
+    setShowManageRoutesModal(false);
+    setShowEditRouteModal(true);
+  };
+
+  const handleAddVillageToEdit = () => {
+    if (!newVillage.trim()) {
+      toast.error('Please enter a village name');
+      return;
+    }
+    if (editingRouteVillages.includes(newVillage.trim())) {
+      toast.error('Village already exists');
+      return;
+    }
+    setEditingRouteVillages([...editingRouteVillages, newVillage.trim()]);
+    setNewVillage('');
+    toast.success(`Village "${newVillage}" added!`);
+  };
+
+  const handleRemoveVillageFromEdit = (village) => {
+    setEditingRouteVillages(editingRouteVillages.filter(v => v !== village));
+  };
+
+  const handleSaveEditedRoute = async () => {
+    if (!editingRouteName.trim()) {
+      toast.error('Route name cannot be empty');
+      return;
+    }
+    if (editingRouteVillages.length === 0) {
+      toast.error('Please add at least one village');
+      return;
+    }
+
+    try {
+      // If route name changed, delete old route and create new one
+      if (editingRouteName !== routeToEdit.name) {
+        await remove(ref(database, `routes/${routeToEdit.name}`));
+      }
+
+      // Save villages as array directly under route
+      await set(ref(database, `routes/${editingRouteName}`), editingRouteVillages);
+
+      // Update agents that have the old route name
+      if (editingRouteName !== routeToEdit.name) {
+        const agentsToUpdate = agents.filter(agent => agent.route.includes(routeToEdit.name));
+        for (const agent of agentsToUpdate) {
+          const updatedRoutes = agent.route.map(r => r === routeToEdit.name ? editingRouteName : r);
+          await update(ref(database, `agents/${agent.name}`), {
+            route: updatedRoutes
+          });
+        }
+      }
+
+      setShowEditRouteModal(false);
+      setShowManageRoutesModal(true);
+      setRouteToEdit(null);
+      setEditingRouteName('');
+      setEditingRouteVillages([]);
+      setNewVillage('');
+
+      setTimeout(() => {
+        toast.success(`Route updated successfully!`);
+      }, 100);
+    } catch (error) {
+      console.error('Error updating route:', error);
+      toast.error('Failed to update route');
+    }
   };
 
   const handleDeleteAgent = async (agentName) => {
@@ -207,65 +443,45 @@ function AgentsPage() {
     const customerCount = agentCustomers.length;
     
     const confirmMessage = customerCount > 0
-      ? `Are you sure you want to delete agent ${agentName}?\n\nThis will permanently delete:\n- Agent ${agentName}\n- ${customerCount} customer(s): ${agentCustomers.map(c => c.name).join(', ')}\n- All their transactions\n- All summary and count data`
-      : `Are you sure you want to delete agent ${agentName} and all related data?`;
+      ? `Are you sure you want to delete agent ${agentName}?\n\nThis will move the agent to Recycle Bin for 5 days.\n\nNote: ${customerCount} customer(s) currently assigned to this agent will remain in the system.`
+      : `Are you sure you want to delete agent ${agentName}?\n\nThis will move the agent to Recycle Bin for 5 days.`;
     
     if (window.confirm(confirmMessage)) {
       try {
-        console.log('Starting deletion process for agent:', agentName);
-        console.log('Customers to delete:', agentCustomers);
+        // Get agent data
+        const agentDataSnapshot = await get(ref(database, `agents/${agentName}`));
         
-        // Delete all customers and their related data
-        for (const customer of agentCustomers) {
-          const customerId = customer.id;
-          const accountNo = customer.accountNo || customerId;
+        if (agentDataSnapshot.exists()) {
+          // Prepare deleted agent object
+          const deletedAgent = {
+            data: {
+              name: agentName,
+              ...agentDataSnapshot.val()
+            },
+            deletedAt: Date.now(),
+            deletedBy: 'admin',
+            customerCount: customerCount
+          };
           
-          console.log('Processing customer:', customer.name, accountNo);
-          
-          // Delete customer transactions
-          await remove(ref(database, `transactions/${accountNo}`));
-          console.log('✓ Deleted transactions for:', accountNo);
-          
-          // Delete customer transaction count
-          await remove(ref(database, `customerTransactionCount/${accountNo}`));
-          console.log('✓ Deleted customerTransactionCount for:', accountNo);
-          
-          // Delete customer data
-          await remove(ref(database, `customers/${customerId}`));
-          console.log('✓ Deleted customer:', customerId);
+          // Move to recycle bin
+          await set(ref(database, `deletedAgents/${agentName}`), deletedAgent);
         }
         
         // Delete agent from main agents node
         await remove(ref(database, `agents/${agentName}`));
-        console.log('✓ Deleted agent from agents node:', agentName);
         
         // Delete agent customer count
         await remove(ref(database, `agentCustomerCount/${agentName}`));
-        console.log('✓ Deleted agentCustomerCount for:', agentName);
         
         // Delete agent daily transaction count
         await remove(ref(database, `agentDailyTransactionCount/${agentName}`));
-        console.log('✓ Deleted agentDailyTransactionCount for:', agentName);
         
         // Delete agent summary
         await remove(ref(database, `agentSummary/${agentName}`));
-        console.log('✓ Deleted agentSummary for:', agentName);
         
-        // Update global count (decrement by number of customers deleted)
-        const globalCountRef = ref(database, 'globalCount');
-        const globalCountSnapshot = await get(globalCountRef);
-        if (globalCountSnapshot.exists()) {
-          const currentCount = globalCountSnapshot.val() || 0;
-          const newCount = Math.max(0, currentCount - customerCount);
-          await set(globalCountRef, newCount);
-          console.log('✓ Updated globalCount:', currentCount, '→', newCount);
-        }
-        
-        console.log('✅ Deletion complete!');
-        alert(`Successfully deleted:\n- Agent: ${agentName}\n- Customers: ${customerCount}\n- All related data from Firebase`);
+        toast.success(`Agent ${agentName} moved to Recycle Bin. ${customerCount} customer(s) remain in the system.`);
       } catch (error) {
-        console.error('❌ Error during deletion:', error);
-        alert('An error occurred while deleting the agent and associated data: ' + error.message);
+        toast.error('Error deleting agent: ' + error.message);
       }
     }
   };
@@ -387,7 +603,7 @@ function AgentsPage() {
       <Card className="border-0 shadow-sm">
         <Card.Body className="p-3">
           <Row className="mb-3 g-2">
-            <Col md={7}>
+            <Col md={5}>
               <InputGroup>
                 <InputGroup.Text><Search size={16} /></InputGroup.Text>
                 <Form.Control 
@@ -397,10 +613,10 @@ function AgentsPage() {
                 />
               </InputGroup>
             </Col>
-            <Col md={5} className="d-flex justify-content-end gap-2">
-              <Button variant="warning" onClick={cleanupOrphanedData} size="sm">
-                <Trash2 size={14} className="me-1" />
-                Cleanup Orphaned Data
+            <Col md={7} className="d-flex justify-content-end gap-2">
+              <Button variant="success" onClick={() => setShowManageRoutesModal(true)} size="sm">
+                <Plus size={14} className="me-1" />
+                Manage Routes
               </Button>
               <Button variant="primary" onClick={() => setShowAddAgentModal(true)} size="sm">
                 <Plus size={14} className="me-1" />
@@ -483,70 +699,90 @@ function AgentsPage() {
       </Card>
 
       {/* Add Agent Modal */}
-      <Modal show={showAddAgentModal} onHide={() => setShowAddAgentModal(false)} centered>
+      <Modal show={showAddAgentModal} onHide={() => setShowAddAgentModal(false)} centered size="lg">
         <Modal.Header closeButton>
           <Modal.Title>Add New Agent</Modal.Title>
         </Modal.Header>
         <Form onSubmit={handleAddAgent}>
-          <Modal.Body>
+          <Modal.Body style={{ maxHeight: '65vh', overflowY: 'auto' }}>
             <Form.Group className="mb-3">
               <Form.Label>Agent Name</Form.Label>
               <Form.Control value={newAgent.name} onChange={e => setNewAgent({ ...newAgent, name: e.target.value })} required />
             </Form.Group>
             <Form.Group className="mb-3">
+              <Form.Label>Address</Form.Label>
+              <Form.Control 
+                as="textarea" 
+                rows={2}
+                value={newAgent.address} 
+                onChange={e => setNewAgent({ ...newAgent, address: e.target.value })} 
+                placeholder="Enter agent address"
+                required 
+              />
+            </Form.Group>
+            <Form.Group className="mb-3">
               <Form.Label>Mobile Number</Form.Label>
-              <Form.Control value={newAgent.mobile} onChange={e => setNewAgent({ ...newAgent, mobile: e.target.value })} required />
+              <Form.Control 
+                type="text"
+                value={newAgent.mobile} 
+                onChange={e => {
+                  const value = e.target.value.replace(/\D/g, ''); // Only allow digits
+                  if (value.length <= 10) {
+                    setNewAgent({ ...newAgent, mobile: value });
+                  }
+                }}
+                pattern="[6-9][0-9]{9}"
+                maxLength="10"
+                placeholder="Enter 10-digit mobile number"
+                required 
+              />
+              <Form.Text className="text-muted">
+                10-digit number starting with 6-9
+              </Form.Text>
             </Form.Group>
             <Form.Group className="mb-3">
               <Form.Label>Password</Form.Label>
-              <Form.Control type="password" value={newAgent.password} onChange={e => setNewAgent({ ...newAgent, password: e.target.value })} required />
-            </Form.Group>
-            <Form.Group className="mb-3">
-              <Form.Label>Route</Form.Label>
-              <div className="mb-2 d-flex flex-wrap gap-2">
-                {Array.isArray(newAgent.route) && newAgent.route.map((route, index) => (
-                  <Badge 
-                    key={index} 
-                    bg="success" 
-                    className="d-flex align-items-center gap-2 py-2 px-3"
-                    style={{ fontSize: '14px' }}
-                  >
-                    {route}
-                    <span 
-                      onClick={() => handleRemoveRouteFromNewAgent(route)}
-                      style={{ cursor: 'pointer', fontSize: '18px', lineHeight: '1' }}
-                      title="Remove route"
-                    >
-                      ×
-                    </span>
-                  </Badge>
-                ))}
-              </div>
               <InputGroup>
                 <Form.Control 
-                  placeholder="Type route and press Enter (comma-separated for multiple)"
-                  value={routeInput}
-                  onChange={(e) => setRouteInput(e.target.value)}
-                  onKeyDown={handleAddRouteToNewAgent}
+                  type={showPassword ? "text" : "password"} 
+                  value={newAgent.password} 
+                  onChange={e => setNewAgent({ ...newAgent, password: e.target.value })} 
+                  required 
                 />
-                <Button 
-                  variant="primary" 
-                  onClick={() => {
-                    if (routeInput.trim()) {
-                      const newRoutes = routeInput.split(',').map(r => r.trim()).filter(r => r);
-                      const currentRoutes = Array.isArray(newAgent.route) ? newAgent.route : [];
-                      const uniqueRoutes = [...new Set([...currentRoutes, ...newRoutes])];
-                      setNewAgent({ ...newAgent, route: uniqueRoutes });
-                      setRouteInput('');
-                    }
-                  }}
-                  disabled={!routeInput.trim()}
+                <InputGroup.Text 
+                  onClick={() => setShowPassword(!showPassword)} 
+                  style={{ cursor: 'pointer' }}
                 >
-                  OK
-                </Button>
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </InputGroup.Text>
               </InputGroup>
-              <Form.Text className="text-muted">
-                Press Enter or click OK to add routes. Click × on a tag to remove it.
+            </Form.Group>
+            <Form.Group className="mb-3">
+              <Form.Label>Assign Routes</Form.Label>
+              {routes.length === 0 ? (
+                <p className="text-muted">No routes available. Please create routes first using "Manage Routes" button.</p>
+              ) : (
+                <div className="border rounded p-3 bg-light" style={{ maxHeight: '250px', overflowY: 'auto' }}>
+                  {routes.map((route) => (
+                    <Form.Check
+                      key={route.name}
+                      type="checkbox"
+                      label={`${route.name} (${route.villages.length} villages: ${route.villages.join(', ') || 'No villages'})`}
+                      checked={newAgent.route.includes(route.name)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setNewAgent({ ...newAgent, route: [...newAgent.route, route.name] });
+                        } else {
+                          setNewAgent({ ...newAgent, route: newAgent.route.filter(r => r !== route.name) });
+                        }
+                      }}
+                      className="mb-2 p-2 bg-white rounded"
+                    />
+                  ))}
+                </div>
+              )}
+              <Form.Text className="text-muted d-block mt-2">
+                Select one or more routes to assign to this agent
               </Form.Text>
             </Form.Group>
           </Modal.Body>
@@ -558,15 +794,28 @@ function AgentsPage() {
       </Modal>
 
       {/* Edit Agent Modal */}
-      <Modal show={showEditAgentModal} onHide={() => setShowEditAgentModal(false)} centered>
+      <Modal show={showEditAgentModal} onHide={() => setShowEditAgentModal(false)} centered size="lg">
         <Modal.Header closeButton>
           <Modal.Title>Edit Agent</Modal.Title>
         </Modal.Header>
         <Form onSubmit={handleUpdateAgent}>
-          <Modal.Body>
+          <Modal.Body style={{ maxHeight: '65vh', overflowY: 'auto' }}>
             <Form.Group className="mb-3">
               <Form.Label>Agent Name</Form.Label>
               <Form.Control value={editAgent.name} disabled />
+            </Form.Group>
+            <Form.Group className="mb-3">
+              <Form.Label>Address</Form.Label>
+              <Form.Control 
+                as="textarea" 
+                rows={2}
+                value={editAgent.address || ""} 
+                onChange={e => setEditAgent({ ...editAgent, address: e.target.value })} 
+                placeholder="Enter agent address"
+              />
+              <Form.Text className="text-muted">
+                Enter the agent's address
+              </Form.Text>
             </Form.Group>
             <Form.Group className="mb-3">
               <Form.Label>Mobile Number</Form.Label>
@@ -590,51 +839,33 @@ function AgentsPage() {
               </InputGroup>
             </Form.Group>
             <Form.Group className="mb-3">
-              <Form.Label>Route</Form.Label>
-              <div className="mb-2 d-flex flex-wrap gap-2">
-                {Array.isArray(editAgent.route) && editAgent.route.map((route, index) => (
-                  <Badge 
-                    key={index} 
-                    bg="success" 
-                    className="d-flex align-items-center gap-2 py-2 px-3"
-                    style={{ fontSize: '14px' }}
-                  >
-                    {route}
-                    <span 
-                      onClick={() => handleRemoveRoute(route)}
-                      style={{ cursor: 'pointer', fontSize: '18px', lineHeight: '1' }}
-                      title="Remove route"
-                    >
-                      ×
-                    </span>
-                  </Badge>
-                ))}
-              </div>
-              <InputGroup>
-                <Form.Control 
-                  placeholder="Type route and press Enter (comma-separated for multiple)"
-                  value={routeInput}
-                  onChange={(e) => setRouteInput(e.target.value)}
-                  onKeyDown={handleAddRoute}
-                />
-                <Button 
-                  variant="primary" 
-                  onClick={() => {
-                    if (routeInput.trim()) {
-                      const newRoutes = routeInput.split(',').map(r => r.trim()).filter(r => r);
-                      const currentRoutes = Array.isArray(editAgent.route) ? editAgent.route : [];
-                      const uniqueRoutes = [...new Set([...currentRoutes, ...newRoutes])];
-                      setEditAgent({ ...editAgent, route: uniqueRoutes });
-                      setRouteInput('');
-                    }
-                  }}
-                  disabled={!routeInput.trim()}
-                >
-                  OK
-                </Button>
-              </InputGroup>
-              <Form.Text className="text-muted">
-                Press Enter or click OK to add routes. Click × on a tag to remove it.
+              <Form.Label>Assign Routes</Form.Label>
+              {routes.length === 0 ? (
+                <p className="text-muted">No routes available. Please create routes first using "Manage Routes" button.</p>
+              ) : (
+                <div className="border rounded p-3 bg-light" style={{ maxHeight: '250px', overflowY: 'auto' }}>
+                  {routes.map((route) => (
+                    <Form.Check
+                      key={route.name}
+                      type="checkbox"
+                      label={`${route.name} (${route.villages.length} villages: ${route.villages.join(', ') || 'No villages'})`}
+                      checked={Array.isArray(editAgent.route) && editAgent.route.includes(route.name)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          const currentRoutes = Array.isArray(editAgent.route) ? editAgent.route : [];
+                          setEditAgent({ ...editAgent, route: [...currentRoutes, route.name] });
+                        } else {
+                          const currentRoutes = Array.isArray(editAgent.route) ? editAgent.route : [];
+                          setEditAgent({ ...editAgent, route: currentRoutes.filter(r => r !== route.name) });
+                        }
+                      }}
+                      className="mb-2 p-2 bg-white rounded"
+                    />
+                  ))}
+                </div>
+              )}
+              <Form.Text className="text-muted d-block mt-2">
+                Select one or more routes to assign to this agent
               </Form.Text>
             </Form.Group>
           </Modal.Body>
@@ -694,11 +925,52 @@ function AgentsPage() {
               <h5>{selectedAgentForRoutes.name}</h5>
               <p className="text-muted">Assigned Routes:</p>
               {Array.isArray(selectedAgentForRoutes.route) && selectedAgentForRoutes.route.length > 0 ? (
-                <ul>
-                  {selectedAgentForRoutes.route.map((r, i) => (
-                    <li key={i}><Badge bg="info">{r}</Badge></li>
-                  ))}
-                </ul>
+                <div>
+                  {selectedAgentForRoutes.route.map((routeName, i) => {
+                    const routeInfo = routes.find(r => r.name === routeName);
+                    return (
+                      <Card key={i} className="mb-2">
+                        <Card.Body className="p-3">
+                          <div className="d-flex align-items-center justify-content-between mb-2">
+                            <Badge bg="info" className="py-2 px-3" style={{ fontSize: '14px' }}>
+                              {routeName}
+                            </Badge>
+                            <Button 
+                              variant="outline-danger" 
+                              size="sm"
+                              onClick={async () => {
+                                if (window.confirm(`Remove ${routeName} from ${selectedAgentForRoutes.name}?`)) {
+                                  const updatedRoutes = selectedAgentForRoutes.route.filter(r => r !== routeName);
+                                  await update(ref(database), {
+                                    [`agents/${selectedAgentForRoutes.name}/route`]: updatedRoutes
+                                  });
+                                  toast.success(`${routeName} removed from ${selectedAgentForRoutes.name}`);
+                                  setShowViewRoutesModal(false);
+                                }
+                              }}
+                            >
+                              <Trash2 size={14} />
+                            </Button>
+                          </div>
+                          <div>
+                            <strong className="text-muted" style={{ fontSize: '12px' }}>Villages:</strong>
+                            <div className="d-flex flex-wrap gap-2 mt-2">
+                              {routeInfo && routeInfo.villages.length > 0 ? (
+                                routeInfo.villages.map((village, idx) => (
+                                  <Badge key={idx} bg="secondary" className="py-1 px-2" style={{ fontSize: '12px' }}>
+                                    {village}
+                                  </Badge>
+                                ))
+                              ) : (
+                                <span className="text-muted" style={{ fontSize: '12px' }}>No villages</span>
+                              )}
+                            </div>
+                          </div>
+                        </Card.Body>
+                      </Card>
+                    );
+                  })}
+                </div>
               ) : (
                 <p className="text-muted">No routes assigned</p>
               )}
@@ -711,6 +983,305 @@ function AgentsPage() {
             setShowViewRoutesModal(false);
             openEditModal(selectedAgentForRoutes);
           }}>Edit Routes</Button>
+        </Modal.Footer>
+      </Modal>
+
+      {/* Manage Routes Modal */}
+      <Modal show={showManageRoutesModal} onHide={() => {
+        setShowManageRoutesModal(false);
+        setTempRoutes([]);
+        setNewRouteName('');
+        setNewVillage('');
+        setSelectedRouteForEdit(null);
+      }} centered size="lg">
+        <Modal.Header closeButton>
+          <Modal.Title>Manage Routes & Villages</Modal.Title>
+        </Modal.Header>
+        <Modal.Body style={{ maxHeight: '70vh', overflowY: 'auto' }}>
+          {/* Create New Route Section - Only show if no route is being created */}
+          {tempRoutes.length === 0 && (
+            <Card className="mb-3 border-0">
+              <Card.Body>
+                <Form.Group className="mb-2">
+                  <Form.Label>Route Name</Form.Label>
+                  <InputGroup>
+                    <Form.Control 
+                      placeholder="Enter route name (e.g., Sangli Route, Kolhapur Route)"
+                      value={newRouteName}
+                      onChange={(e) => setNewRouteName(e.target.value)}
+                      onKeyPress={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleCreateRoute();
+                        }
+                      }}
+                    />
+                    <Button 
+                      variant="primary"
+                      onClick={handleCreateRoute}
+                      disabled={!newRouteName.trim()}
+                    >
+                      Create
+                    </Button>
+                  </InputGroup>
+                </Form.Group>
+                <Form.Text className="text-muted">
+                  Enter a route name and click Create to add villages
+                </Form.Text>
+              </Card.Body>
+            </Card>
+          )}
+
+          {/* Temporary Routes Being Created */}
+          {tempRoutes.map((route) => (
+            <Card key={route.name} className="mb-3 border-success">
+              <Card.Header className="bg-success text-white d-flex justify-content-between align-items-center">
+                <strong>{route.name}</strong>
+                <Button 
+                  variant="light" 
+                  size="sm"
+                  onClick={() => setTempRoutes(tempRoutes.filter(r => r.name !== route.name))}
+                >
+                  <Trash2 size={14} />
+                </Button>
+              </Card.Header>
+              <Card.Body>
+                <div className="mb-3">
+                  <strong>Villages:</strong>
+                  <div className="d-flex flex-wrap gap-2 mt-2">
+                    {route.villages.length === 0 ? (
+                      <span className="text-muted">No villages added yet</span>
+                    ) : (
+                      route.villages.map((village, idx) => (
+                        <Badge 
+                          key={idx} 
+                          bg="success" 
+                          className="d-flex align-items-center gap-2 py-2 px-3"
+                          style={{ fontSize: '14px' }}
+                        >
+                          {village}
+                          <span 
+                            onClick={() => handleRemoveVillageFromTemp(route.name, village)}
+                            style={{ cursor: 'pointer', fontSize: '18px', lineHeight: '1' }}
+                            title="Remove village"
+                          >
+                            ×
+                          </span>
+                        </Badge>
+                      ))
+                    )}
+                  </div>
+                </div>
+                <InputGroup size="sm">
+                  <Form.Control 
+                    placeholder="Enter village name"
+                    value={selectedRouteForEdit === route.name ? newVillage : ''}
+                    onChange={(e) => {
+                      setNewVillage(e.target.value);
+                      setSelectedRouteForEdit(route.name);
+                    }}
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddVillageToTemp(route.name);
+                      }
+                    }}
+                  />
+                  <Button 
+                    variant="success"
+                    onClick={() => handleAddVillageToTemp(route.name)}
+                    disabled={!newVillage.trim() || selectedRouteForEdit !== route.name}
+                  >
+                    OK
+                  </Button>
+                </InputGroup>
+              </Card.Body>
+            </Card>
+          ))}
+
+          {/* Existing Saved Routes */}
+          {routes.length > 0 && (
+            <>
+              <hr />
+              <h6 className="mb-3">Existing Routes</h6>
+              {routes.map((route) => (
+                <Card 
+                  key={route.name} 
+                  className="mb-3"
+                >
+                  <Card.Header className="bg-light d-flex justify-content-between align-items-center">
+                    <strong>{route.name}</strong>
+                    <div className="d-flex gap-2">
+                      <Button 
+                        variant="outline-primary" 
+                        size="sm"
+                        onClick={() => handleClickExistingRoute(route)}
+                      >
+                        <Edit size={14} />
+                      </Button>
+                      <Button 
+                        variant="outline-danger" 
+                        size="sm"
+                        onClick={() => handleDeleteRoute(route.name)}
+                      >
+                        <Trash2 size={14} />
+                      </Button>
+                    </div>
+                  </Card.Header>
+                  <Card.Body>
+                    <div className="d-flex flex-wrap gap-2">
+                      {route.villages.length === 0 ? (
+                        <span className="text-muted">No villages</span>
+                      ) : (
+                        route.villages.map((village, idx) => (
+                          <Badge key={idx} bg="secondary" className="py-2 px-3">
+                            {village}
+                          </Badge>
+                        ))
+                      )}
+                    </div>
+                  </Card.Body>
+                </Card>
+              ))}
+            </>
+          )}
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => {
+            setShowManageRoutesModal(false);
+            setTempRoutes([]);
+            setNewRouteName('');
+            setNewVillage('');
+            setSelectedRouteForEdit(null);
+          }}>
+            Cancel
+          </Button>
+          <Button 
+            variant="primary" 
+            onClick={handleSaveAllRoutes}
+            disabled={tempRoutes.length === 0}
+          >
+            Save Route
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
+      {/* Confirmation Modal for Editing Existing Route */}
+      <Modal show={showEditRouteConfirm} onHide={() => setShowEditRouteConfirm(false)} centered size="sm">
+        <Modal.Header closeButton>
+          <Modal.Title>Confirm Edit</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <p>Do you really want to update this route?</p>
+          <p className="mb-0"><strong>{routeToEdit?.name}</strong></p>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setShowEditRouteConfirm(false)}>
+            No
+          </Button>
+          <Button variant="primary" onClick={handleConfirmEditRoute}>
+            Yes
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
+      {/* Edit Existing Route Modal */}
+      <Modal show={showEditRouteModal} onHide={() => {
+        setShowEditRouteModal(false);
+        setShowManageRoutesModal(true);
+        setRouteToEdit(null);
+        setEditingRouteName('');
+        setEditingRouteVillages([]);
+        setNewVillage('');
+      }} centered size="lg">
+        <Modal.Header closeButton>
+          <Modal.Title>Edit Route</Modal.Title>
+        </Modal.Header>
+        <Modal.Body style={{ maxHeight: '70vh', overflowY: 'auto' }}>
+          <Card className="mb-3 border-warning">
+            <Card.Header className="bg-warning text-dark">
+              <strong>Route Name</strong>
+            </Card.Header>
+            <Card.Body>
+              <Form.Control 
+                placeholder="Enter route name"
+                value={editingRouteName}
+                onChange={(e) => setEditingRouteName(e.target.value)}
+              />
+            </Card.Body>
+          </Card>
+
+          <Card className="border-warning">
+            <Card.Header className="bg-warning text-dark">
+              <strong>Villages</strong>
+            </Card.Header>
+            <Card.Body>
+              <div className="mb-3">
+                <div className="d-flex flex-wrap gap-2">
+                  {editingRouteVillages.length === 0 ? (
+                    <span className="text-muted">No villages added yet</span>
+                  ) : (
+                    editingRouteVillages.map((village, idx) => (
+                      <Badge 
+                        key={idx} 
+                        bg="warning" 
+                        text="dark"
+                        className="d-flex align-items-center gap-2 py-2 px-3"
+                        style={{ fontSize: '14px' }}
+                      >
+                        {village}
+                        <span 
+                          onClick={() => handleRemoveVillageFromEdit(village)}
+                          style={{ cursor: 'pointer', fontSize: '18px', lineHeight: '1' }}
+                          title="Remove village"
+                        >
+                          ×
+                        </span>
+                      </Badge>
+                    ))
+                  )}
+                </div>
+              </div>
+              <InputGroup size="sm">
+                <Form.Control 
+                  placeholder="Enter village name"
+                  value={newVillage}
+                  onChange={(e) => setNewVillage(e.target.value)}
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleAddVillageToEdit();
+                    }
+                  }}
+                />
+                <Button 
+                  variant="warning"
+                  onClick={handleAddVillageToEdit}
+                  disabled={!newVillage.trim()}
+                >
+                  OK
+                </Button>
+              </InputGroup>
+            </Card.Body>
+          </Card>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => {
+            setShowEditRouteModal(false);
+            setShowManageRoutesModal(true);
+            setRouteToEdit(null);
+            setEditingRouteName('');
+            setEditingRouteVillages([]);
+            setNewVillage('');
+          }}>
+            Cancel
+          </Button>
+          <Button 
+            variant="primary" 
+            onClick={handleSaveEditedRoute}
+          >
+            Save Changes
+          </Button>
         </Modal.Footer>
       </Modal>
     </Container>

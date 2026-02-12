@@ -176,7 +176,7 @@ function AdminDashboard() {
           </Card.Header>
           <Card.Body className="p-0">
             <div style={{ maxHeight: '500px', overflowY: 'auto' }}>
-              <Table bordered hover responsive className="mb-0">
+              <Table hover responsive className="mb-0">
                 <thead className="bg-light sticky-top">
                   <tr>
                     <th>Account No</th>
@@ -251,7 +251,7 @@ function AdminDashboard() {
           </Card.Header>
           <Card.Body className="p-0">
             <div style={{ maxHeight: '500px', overflowY: 'auto' }}>
-              <Table bordered hover responsive className="mb-0">
+              <Table hover responsive className="mb-0">
                 <thead className="bg-light sticky-top">
                   <tr>
                     <th>Transaction ID</th>
@@ -321,7 +321,7 @@ function AdminDashboard() {
           </Card.Header>
           <Card.Body className="p-0">
             <div style={{ maxHeight: '500px', overflowY: 'auto' }}>
-              <Table bordered hover responsive className="mb-0">
+              <Table hover responsive className="mb-0">
                 <thead className="bg-light sticky-top">
                   <tr>
                     <th>Transaction ID</th>
@@ -391,7 +391,7 @@ function AdminDashboard() {
           </Card.Header>
           <Card.Body className="p-0">
             <div style={{ maxHeight: '500px', overflowY: 'auto' }}>
-              <Table bordered hover responsive className="mb-0">
+              <Table hover responsive className="mb-0">
                 <thead className="bg-light sticky-top">
                   <tr>
                     <th>Account No</th>

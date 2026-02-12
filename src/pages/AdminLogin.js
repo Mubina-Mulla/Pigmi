@@ -44,12 +44,22 @@ const AdminLogin = () => {
 
   return (
     <div className="login-container">
+      {/* Top Left Text */}
+      <div style={{ 
+        position: 'absolute', 
+        top: '30px', 
+        left: '30px', 
+        zIndex: 10,
+        color: 'white'
+      }}>
+        <h1 style={{ fontSize: '32px', fontWeight: 'bold', margin: 0 }}>Welcome Back!</h1>
+        <p style={{ fontSize: '16px', margin: 0, opacity: 0.9 }}>Manage your Pigmi business efficiently</p>
+      </div>
+      
       <div className="login-wrapper">
         {/* Left Side - Image/Background */}
         <div className="login-image-section">
           <div className="login-image-overlay">
-            <h1>Welcome Back!</h1>
-            <p>Manage your Pigmi business efficiently</p>
           </div>
         </div>
 
