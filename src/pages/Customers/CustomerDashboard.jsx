@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import {
   Container,
   Row,
@@ -21,6 +21,9 @@ import { generateTransactionId } from "../../utils/dataValidation";
 function CustomerDashboard() {
   const { accountNo } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const fromAgent = location.state?.from === 'agent';
+  const agentName = location.state?.agentName;
   const [customer, setCustomer] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -121,8 +124,8 @@ function CustomerDashboard() {
     return (
       <Container className="py-4">
         <div className="text-center">Customer not found</div>
-        <Button onClick={() => navigate("/customers")} className="mt-3">
-          Back to Customers
+        <Button onClick={() => navigate(fromAgent ? `/agents/${agentName}` : "/customers")} className="mt-3">
+          {fromAgent ? "Back to Agent" : "Back to Customers"}
         </Button>
       </Container>
     );
@@ -198,10 +201,10 @@ function CustomerDashboard() {
           <Button
             variant="outline-primary"
             size="sm"
-            onClick={() => navigate("/customers")}
+            onClick={() => navigate(fromAgent ? `/agents/${agentName}` : "/customers")}
           >
             <ArrowLeft size={16} className="me-1" />
-            Back to Customers
+            {fromAgent ? "Back to Agent" : "Back to Customers"}
           </Button>
         </div>
         <Button

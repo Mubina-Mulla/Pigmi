@@ -375,7 +375,7 @@ function AgentDashboard() {
                           <Button
                             size="sm"
                             variant="outline-primary"
-                            onClick={() => navigate(`/customers/${customer.accountNo}`)}
+                            onClick={() => navigate(`/customers/${customer.accountNo}`, { state: { from: 'agent', agentName: agentName } })}
                           >
                             View Details
                           </Button>
