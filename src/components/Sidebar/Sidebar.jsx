@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Nav } from 'react-bootstrap';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { FaUsers, FaUserTie, FaMoneyBillWave, FaTachometerAlt, FaSignOutAlt, FaBars, FaTimes, FaTrashRestore } from 'react-icons/fa';
+import { FaUsers, FaUserTie, FaMoneyBillWave, FaTachometerAlt, FaSignOutAlt, FaBars, FaTimes, FaTrashRestore, FaRoute } from 'react-icons/fa';
 import { useAuth } from '../../context/AuthContext';
 import './Sidebar.css';
 
@@ -55,6 +55,12 @@ const Sidebar = () => {
       label: 'Agent Management',
       icon: <FaUserTie size={20} />,
       path: '/agents'
+    },
+    {
+      id: 'routes',
+      label: 'Route Management',
+      icon: <FaRoute size={20} />,
+      path: '/routes'
     },
     {
       id: 'transactions',

@@ -9,11 +9,12 @@ import {
   Button,
   Badge,
   Modal,
-  Form
+  Form,
+  InputGroup
 } from "react-bootstrap";
 import { ref, onValue, set, update } from "firebase/database";
 import { database } from "../../firebase";
-import { ArrowLeft, Plus, TrendingUp, TrendingDown, DollarSign, Calendar } from "react-feather";
+import { ArrowLeft, Plus, TrendingUp, TrendingDown, DollarSign, Calendar, Search, Download } from "react-feather";
 import { toast } from 'react-toastify';
 import { generateTransactionId } from "../../utils/dataValidation";
 
@@ -23,6 +24,7 @@ function CustomerDashboard() {
   const [customer, setCustomer] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState("");
   const [showAddTransactionModal, setShowAddTransactionModal] = useState(false);
   const [newTransaction, setNewTransaction] = useState({
     type: "deposit",
@@ -61,7 +63,7 @@ function CustomerDashboard() {
   const handleAddTransaction = async (e) => {
     e.preventDefault();
     
-    const amount = parseFloat(newTransaction.amount);
+    const amount = parseInt(newTransaction.amount);
     if (isNaN(amount) || amount <= 0) {
       toast.error("Please enter a valid amount");
       return;
@@ -128,10 +130,70 @@ function CustomerDashboard() {
 
   const balance = (customer.totalAmount || 0) - (customer.withdrawnAmount || 0);
 
+  const exportToCSV = () => {
+    if (filteredTransactions.length === 0) {
+      toast.error("No transactions to export");
+      return;
+    }
+
+    let csvContent = "data:text/csv;charset=utf-8,";
+    csvContent += "Date,Time,Type,Amount (₹),Mode,Receiver Number,Note,Added By\n";
+    
+    filteredTransactions.forEach(trans => {
+      const dateTime = new Date(trans.timestamp).toLocaleString('en-IN', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      }).split(', ');
+      const date = dateTime[0] || '';
+      const time = dateTime[1] || '';
+      const type = trans.type === "deposit" ? "Deposit" : "Withdrawal";
+      const amount = parseInt(trans.amount) || 0;
+      const mode = (trans.mode || 'Cash').toUpperCase();
+      const receiverNumber = trans.mode?.toLowerCase() === 'online' && trans.receiverPhoneNumber ? trans.receiverPhoneNumber : '-';
+      const note = trans.note || "-";
+      const addedBy = trans.addedBy || "Admin";
+      
+      csvContent += `${date},${time},${type},${amount},${mode},${receiverNumber},"${note}",${addedBy}\n`;
+    });
+    
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `${customer.name}_${customer.accountNo}_transactions_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    toast.success("Transactions exported successfully!");
+  };
+
+  // Filter transactions based on search
+  const filteredTransactions = transactions.filter(trans => {
+    const searchLower = searchTerm.toLowerCase();
+    const date = new Date(trans.timestamp).toLocaleString('en-IN', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+    return (
+      date.toLowerCase().includes(searchLower) ||
+      trans.type?.toLowerCase().includes(searchLower) ||
+      trans.amount?.toString().includes(searchLower) ||
+      trans.mode?.toLowerCase().includes(searchLower) ||
+      trans.receiverPhoneNumber?.toLowerCase().includes(searchLower) ||
+      trans.note?.toLowerCase().includes(searchLower) ||
+      trans.addedBy?.toLowerCase().includes(searchLower)
+    );
+  });
+
   return (
     <Container fluid className="py-4">
       {/* Header */}
-      <div className="d-flex justify-content-between align-items-center mb-4 p-3 rounded" style={{ backgroundColor: '#e3f2fd' }}>
+      <div className="d-flex justify-content-between align-items-center mb-4 p-3 rounded" style={{ backgroundColor: 'rgb(255,255,255)' }}>
         <div>
           <Button
             variant="outline-primary"
@@ -143,7 +205,7 @@ function CustomerDashboard() {
           </Button>
         </div>
         <Button
-          variant="primary"
+          style={{ backgroundColor: 'rgb(239,97,16)', border: 'none', color: '#ffffff' }}
           onClick={() => setShowAddTransactionModal(true)}
         >
           <Plus size={16} className="me-1" />
@@ -224,18 +286,18 @@ function CustomerDashboard() {
           <Row className="mb-3">
             <Col xs={12}>
               <h4 className="fw-bold mb-1">{customer.name}</h4>
-              <p className="text-muted mb-0">Account: {customer.accountNo}</p>
+              <p className="text-muted mb-0">Account: {customer.accountNumber || customer.accountNo}</p>
             </Col>
           </Row>
           <hr />
           <Row>
             <Col md={6}>
-              <p><strong>Mobile:</strong> {customer.mobile}</p>
+              <p><strong>Mobile:</strong> {customer.mobileNumber || customer.mobile}</p>
               <p><strong>Address:</strong> {customer.address}</p>
               <p><strong>Village:</strong> {customer.village || "N/A"}</p>
             </Col>
             <Col md={6}>
-              <p><strong>Aadhar:</strong> {customer.aadharNumber}</p>
+              <p><strong>Aadhar:</strong> {customer.aadhaarNumber || customer.aadharNumber}</p>
               <p><strong>Agent:</strong> {customer.agentName}</p>
               <p><strong>Route:</strong> {Array.isArray(customer.route) ? customer.route.join(', ') : (customer.route || "N/A")}</p>
               <p><strong>Status:</strong> <Badge bg="success">{customer.status || "Active"}</Badge></p>
@@ -244,13 +306,40 @@ function CustomerDashboard() {
         </Card.Body>
       </Card>
 
+      {/* Search Bar */}
+      <Card className="border-0 shadow-sm mb-4">
+        <Card.Body>
+          <InputGroup>
+            <InputGroup.Text className="bg-white">
+              <Search size={18} />
+            </InputGroup.Text>
+            <Form.Control
+              type="text"
+              placeholder="Search transactions by date, type, amount, mode, receiver number, note, or added by..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              style={{ fontSize: '15px' }}
+            />
+          </InputGroup>
+        </Card.Body>
+      </Card>
+
       {/* Transactions Table */}
       <Card className="border-0 shadow-sm">
-        <Card.Header className="bg-light">
-          <h5 className="mb-0">Transaction History</h5>
+        <Card.Header className="bg-light d-flex justify-content-between align-items-center">
+          <h5 className="mb-0">Transaction History ({filteredTransactions.length})</h5>
+          <Button
+            size="sm"
+            onClick={exportToCSV}
+            style={{ backgroundColor: 'rgb(239,96,16)', border: 'none', color: 'white' }}
+            disabled={filteredTransactions.length === 0}
+          >
+            <Download size={14} className="me-1" />
+            Export CSV
+          </Button>
         </Card.Header>
         <Card.Body className="p-0">
-          <div className="table-responsive">
+          <div>
             <Table hover className="mb-0">
               <thead className="bg-light">
                 <tr>
@@ -264,8 +353,8 @@ function CustomerDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {transactions.length > 0 ? (
-                  transactions.map((trans) => (
+                {filteredTransactions.length > 0 ? (
+                  filteredTransactions.map((trans) => (
                     <tr key={trans.id}>
                       <td>
                         {new Date(trans.timestamp).toLocaleString('en-IN', {
@@ -301,7 +390,7 @@ function CustomerDashboard() {
                 ) : (
                   <tr>
                     <td colSpan="7" className="text-center text-muted py-4">
-                      No transactions found
+                      {searchTerm ? "No transactions match your search" : "No transactions found"}
                     </td>
                   </tr>
                 )}
@@ -333,10 +422,10 @@ function CustomerDashboard() {
               <Form.Label>Amount</Form.Label>
               <Form.Control
                 type="number"
-                step="0.01"
                 value={newTransaction.amount}
                 onChange={(e) => setNewTransaction({ ...newTransaction, amount: e.target.value })}
                 required
+                min="1"
               />
             </Form.Group>
 
@@ -384,7 +473,7 @@ function CustomerDashboard() {
             <Button variant="secondary" onClick={() => setShowAddTransactionModal(false)}>
               Cancel
             </Button>
-            <Button variant="primary" type="submit">
+            <Button style={{ backgroundColor: 'rgb(239,96,16)', border: 'none', color: '#ffffff' }} type="submit">
               Add Transaction
             </Button>
           </Modal.Footer>

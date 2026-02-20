@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from "react";
-import { Container, Table, Card, Badge, Form, InputGroup } from "react-bootstrap";
-import { ref, onValue, set } from "firebase/database";
-import { Search } from "react-feather";
+import { Container, Table, Card, Badge, Form, InputGroup, Button } from "react-bootstrap";
+import { ref, onValue, set, get } from "firebase/database";
+import { Search, RefreshCw } from "react-feather";
 import { database } from "../firebase";
 import StatCards from "../components/StatCards/StatCards";
 import { Spinner } from "react-bootstrap";
+import { toast } from 'react-toastify';
 
 function AdminDashboard() {
   const [customers, setCustomers] = useState([]);
@@ -12,6 +13,84 @@ function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [activeView, setActiveView] = useState('customers'); // Track which card is active
   const [searchTerm, setSearchTerm] = useState(''); // Search functionality
+  const [syncing, setSyncing] = useState(false); // Track sync operation
+
+  // Sync global count with actual customer count
+  const syncGlobalCount = async () => {
+    setSyncing(true);
+    try {
+      const customersRef = ref(database, "customers");
+      const snapshot = await get(customersRef);
+      
+      if (snapshot.exists()) {
+        const customerData = snapshot.val();
+        const actualCount = Object.keys(customerData).length;
+        
+        // Update global count to match actual customer count
+        const globalCountRef = ref(database, 'globalCount');
+        await set(globalCountRef, actualCount);
+        
+        toast.success(`Global count synced: ${actualCount} customers`);
+        console.log(`Global count synced: ${actualCount} customers`);
+        return actualCount;
+      } else {
+        // No customers exist, set count to 0
+        const globalCountRef = ref(database, 'globalCount');
+        await set(globalCountRef, 0);
+        toast.success('Global count synced: 0 customers');
+        console.log('Global count synced: 0 customers');
+        return 0;
+      }
+    } catch (error) {
+      console.error('Error syncing global count:', error);
+      toast.error('Failed to sync customer count');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  // Sync agent customer count with actual customer data
+  const syncAgentCustomerCount = async () => {
+    setSyncing(true);
+    try {
+      const customersRef = ref(database, "customers");
+      const snapshot = await get(customersRef);
+      
+      // Count customers per agent
+      const agentCounts = {};
+      
+      if (snapshot.exists()) {
+        const customerData = snapshot.val();
+        Object.values(customerData).forEach(customer => {
+          if (customer && customer.agentName) {
+            agentCounts[customer.agentName] = (agentCounts[customer.agentName] || 0) + 1;
+          }
+        });
+      }
+      
+      // Update agentCustomerCount in Firebase
+      const agentCustomerCountRef = ref(database, 'agentCustomerCount');
+      const { remove } = await import('firebase/database');
+      
+      if (Object.keys(agentCounts).length > 0) {
+        await set(agentCustomerCountRef, agentCounts);
+        toast.success(`Agent counts synced: ${Object.keys(agentCounts).length} agents`);
+        console.log('Agent customer counts synced:', agentCounts);
+      } else {
+        // No customers with agents, clear the node
+        await remove(agentCustomerCountRef);
+        toast.success('Agent counts cleared (no customers assigned)');
+        console.log('Agent customer counts cleared (no customers)');
+      }
+      
+      return agentCounts;
+    } catch (error) {
+      console.error('Error syncing agent customer count:', error);
+      toast.error('Failed to sync agent customer count');
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   // Calculate interest based on time elapsed
   const calculateTimeBasedInterest = (balance, createdDate) => {

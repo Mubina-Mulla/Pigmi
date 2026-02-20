@@ -10,7 +10,7 @@ import {
   Tabs,
   Tab
 } from "react-bootstrap";
-import { ref, onValue, remove, set, update } from "firebase/database";
+import { ref, onValue, remove, set, update, get } from "firebase/database";
 import { database } from "../../firebase";
 import { FaUndo, FaTrash, FaUsers, FaUserTie } from "react-icons/fa";
 import { toast } from 'react-toastify';
@@ -19,6 +19,72 @@ function RecycleBinPage() {
   const [deletedCustomers, setDeletedCustomers] = useState([]);
   const [deletedAgents, setDeletedAgents] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // Sync global count with actual customer count
+  const syncGlobalCount = async () => {
+    try {
+      const customersRef = ref(database, "customers");
+      const snapshot = await get(customersRef);
+      
+      if (snapshot.exists()) {
+        const customerData = snapshot.val();
+        const actualCount = Object.keys(customerData).length;
+        
+        // Update global count to match actual customer count
+        const globalCountRef = ref(database, 'globalCount');
+        await set(globalCountRef, actualCount);
+        
+        console.log(`Global count synced: ${actualCount} customers`);
+        return actualCount;
+      } else {
+        // No customers exist, set count to 0
+        const globalCountRef = ref(database, 'globalCount');
+        await set(globalCountRef, 0);
+        console.log('Global count synced: 0 customers');
+        return 0;
+      }
+    } catch (error) {
+      console.error('Error syncing global count:', error);
+      toast.error('Failed to sync customer count');
+    }
+  };
+
+  // Sync agent customer count with actual customer data
+  const syncAgentCustomerCount = async () => {
+    try {
+      const customersRef = ref(database, "customers");
+      const snapshot = await get(customersRef);
+      
+      // Count customers per agent
+      const agentCounts = {};
+      
+      if (snapshot.exists()) {
+        const customerData = snapshot.val();
+        Object.values(customerData).forEach(customer => {
+          if (customer && customer.agentName) {
+            agentCounts[customer.agentName] = (agentCounts[customer.agentName] || 0) + 1;
+          }
+        });
+      }
+      
+      // Update agentCustomerCount in Firebase
+      const agentCustomerCountRef = ref(database, 'agentCustomerCount');
+      
+      if (Object.keys(agentCounts).length > 0) {
+        await set(agentCustomerCountRef, agentCounts);
+        console.log('Agent customer counts synced:', agentCounts);
+      } else {
+        // No customers with agents, clear the node
+        await remove(agentCustomerCountRef);
+        console.log('Agent customer counts cleared (no customers)');
+      }
+      
+      return agentCounts;
+    } catch (error) {
+      console.error('Error syncing agent customer count:', error);
+      toast.error('Failed to sync agent customer count');
+    }
+  };
 
   useEffect(() => {
     const deletedCustomersRef = ref(database, "deletedCustomers");
@@ -74,13 +140,9 @@ function RecycleBinPage() {
           await set(ref(database, `customerTransactionCount/${customer.data.accountNo}`), customer.transactionCount);
         }
         
-        // Increment global count
-        const globalCountRef = ref(database, 'globalCount');
-        const globalCountSnapshot = await (await import('firebase/database')).get(globalCountRef);
-        if (globalCountSnapshot.exists()) {
-          const currentCount = globalCountSnapshot.val() || 0;
-          await set(globalCountRef, currentCount + 1);
-        }
+        // Sync global count and agent customer count after restoring customer
+        await syncGlobalCount();
+        await syncAgentCustomerCount();
         
         // Remove from recycle bin
         await remove(ref(database, `deletedCustomers/${customer.id}`));
@@ -177,9 +239,9 @@ function RecycleBinPage() {
                   <tbody>
                     {deletedCustomers.map((customer) => (
                       <tr key={customer.id}>
-                        <td><Badge bg="outline-primary" text="dark">{customer.data.accountNo}</Badge></td>
+                        <td><Badge bg="outline-primary" text="dark">{customer.data.accountNumber || customer.data.accountNo}</Badge></td>
                         <td>{customer.data.name}</td>
-                        <td>{customer.data.mobile}</td>
+                        <td>{customer.data.mobileNumber || customer.data.mobile}</td>
                         <td>{customer.data.agentName || 'N/A'}</td>
                         <td><small className="text-muted">{new Date(customer.deletedAt).toLocaleString()}</small></td>
                         <td>

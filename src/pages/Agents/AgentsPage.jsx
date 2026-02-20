@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Container,
   Row,
@@ -25,6 +26,7 @@ import {
 import { toast } from 'react-toastify';
 
 function AgentsPage() {
+  const navigate = useNavigate();
   const [agents, setAgents] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [transactions, setTransactions] = useState([]);
@@ -39,6 +41,8 @@ function AgentsPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [routeInput, setRouteInput] = useState('');
+  const [routeSearchTerm, setRouteSearchTerm] = useState('');
+  const [editRouteSearchTerm, setEditRouteSearchTerm] = useState('');
   
   // Route management states
   const [routes, setRoutes] = useState([]); // List of all routes with villages
@@ -117,8 +121,8 @@ function AgentsPage() {
       const customerList = [];
       Object.entries(customerData).forEach(([customerId, customerInfo]) => {
         if (customerInfo && typeof customerInfo === 'object') {
-          const totalAmount = parseFloat(customerInfo.totalAmount) || 0;
-          const withdrawnAmount = parseFloat(customerInfo.withdrawnAmount) || 0;
+          const totalAmount = parseInt(customerInfo.totalAmount) || 0;
+          const withdrawnAmount = parseInt(customerInfo.withdrawnAmount) || 0;
           // Normalize mobile number field - handle different field names
           const mobile = customerInfo.mobile || customerInfo.mobileNumber || customerInfo.phone || "";
           
@@ -235,13 +239,71 @@ function AgentsPage() {
 
   const handleUpdateAgent = async (e) => {
     e.preventDefault();
-    const updates = {};
-    updates[`agents/${editAgent.name}/address`] = editAgent.address;
-    updates[`agents/${editAgent.name}/mobile`] = editAgent.mobile;
-    updates[`agents/${editAgent.name}/password`] = editAgent.password;
-    updates[`agents/${editAgent.name}/route`] = editAgent.route;
-    await update(ref(database), updates);
-    toast.success(`Agent ${editAgent.name} updated successfully!`);
+    
+    if (!selectedAgent) {
+      toast.error('No agent selected for update');
+      return;
+    }
+    
+    const oldName = selectedAgent.name;
+    const newName = editAgent.name.trim();
+    
+    if (!newName) {
+      toast.error('Agent name cannot be empty');
+      return;
+    }
+    
+    // If name changed, we need to handle it differently
+    if (oldName !== newName) {
+      // Check if new name already exists
+      const agentExists = agents.some(agent => agent.name === newName && agent.name !== oldName);
+      if (agentExists) {
+        toast.error('An agent with this name already exists');
+        return;
+      }
+      
+      try {
+        // Create new agent with new name
+        const agentData = {
+          address: editAgent.address,
+          mobile: editAgent.mobile,
+          password: editAgent.password,
+          route: editAgent.route
+        };
+        await set(ref(database, `agents/${newName}`), agentData);
+        
+        // Update all customers assigned to this agent
+        const updates = {};
+        customers.forEach(customer => {
+          if (customer.agentName === oldName) {
+            updates[`customers/${customer.id}/agentName`] = newName;
+          }
+        });
+        
+        if (Object.keys(updates).length > 0) {
+          await update(ref(database), updates);
+        }
+        
+        // Delete old agent
+        await remove(ref(database, `agents/${oldName}`));
+        
+        toast.success(`Agent name updated from "${oldName}" to "${newName}" successfully!`);
+      } catch (error) {
+        console.error('Error updating agent:', error);
+        toast.error('Failed to update agent name');
+        return;
+      }
+    } else {
+      // Just update the existing agent data
+      const updates = {};
+      updates[`agents/${editAgent.name}/address`] = editAgent.address;
+      updates[`agents/${editAgent.name}/mobile`] = editAgent.mobile;
+      updates[`agents/${editAgent.name}/password`] = editAgent.password;
+      updates[`agents/${editAgent.name}/route`] = editAgent.route;
+      await update(ref(database), updates);
+      toast.success(`Agent ${editAgent.name} updated successfully!`);
+    }
+    
     setShowEditAgentModal(false);
     setSelectedAgent(null);
   };
@@ -614,11 +676,7 @@ function AgentsPage() {
               </InputGroup>
             </Col>
             <Col md={7} className="d-flex justify-content-end gap-2">
-              <Button variant="success" onClick={() => setShowManageRoutesModal(true)} size="sm">
-                <Plus size={14} className="me-1" />
-                Manage Routes
-              </Button>
-              <Button variant="primary" onClick={() => setShowAddAgentModal(true)} size="sm">
+              <Button onClick={() => setShowAddAgentModal(true)} size="sm" style={{ backgroundColor: 'rgb(238,95,14)', border: 'none', color: 'white' }}>
                 <Plus size={14} className="me-1" />
                 Add New Agent
               </Button>
@@ -656,7 +714,16 @@ function AgentsPage() {
                   const stats = agentStats[agent.name] || {};
                   return (
                     <tr key={agent.name} className="align-middle">
-                      <td className="fw-semibold">{agent.name}</td>
+                      <td>
+                        <Button 
+                          variant="link" 
+                          className="p-0 text-decoration-none fw-semibold" 
+                          onClick={() => navigate(`/agents/${encodeURIComponent(agent.name)}`)}
+                          style={{ color: '#0d6efd', cursor: 'pointer' }}
+                        >
+                          {agent.name}
+                        </Button>
+                      </td>
                       <td>{agent.mobile}</td>
                       <td>
                         <Button variant="outline-info" size="sm" onClick={() => handleViewRoutes(agent)}>
@@ -707,7 +774,16 @@ function AgentsPage() {
           <Modal.Body style={{ maxHeight: '65vh', overflowY: 'auto' }}>
             <Form.Group className="mb-3">
               <Form.Label>Agent Name</Form.Label>
-              <Form.Control value={newAgent.name} onChange={e => setNewAgent({ ...newAgent, name: e.target.value })} required />
+              <Form.Control 
+                type="text"
+                value={newAgent.name} 
+                onChange={e => setNewAgent({ ...newAgent, name: e.target.value })} 
+                placeholder="Enter agent name manually"
+                required 
+              />
+              <Form.Text className="text-muted">
+                Enter the agent's full name
+              </Form.Text>
             </Form.Group>
             <Form.Group className="mb-3">
               <Form.Label>Address</Form.Label>
@@ -760,26 +836,50 @@ function AgentsPage() {
             <Form.Group className="mb-3">
               <Form.Label>Assign Routes</Form.Label>
               {routes.length === 0 ? (
-                <p className="text-muted">No routes available. Please create routes first using "Manage Routes" button.</p>
+                <p className="text-muted">No routes available. Please create routes first using Route Management page.</p>
               ) : (
-                <div className="border rounded p-3 bg-light" style={{ maxHeight: '250px', overflowY: 'auto' }}>
-                  {routes.map((route) => (
-                    <Form.Check
-                      key={route.name}
-                      type="checkbox"
-                      label={`${route.name} (${route.villages.length} villages: ${route.villages.join(', ') || 'No villages'})`}
-                      checked={newAgent.route.includes(route.name)}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setNewAgent({ ...newAgent, route: [...newAgent.route, route.name] });
-                        } else {
-                          setNewAgent({ ...newAgent, route: newAgent.route.filter(r => r !== route.name) });
-                        }
-                      }}
-                      className="mb-2 p-2 bg-white rounded"
+                <>
+                  <InputGroup className="mb-2">
+                    <InputGroup.Text className="bg-white">
+                      <Search size={16} />
+                    </InputGroup.Text>
+                    <Form.Control
+                      type="text"
+                      placeholder="Search routes or villages..."
+                      value={routeSearchTerm}
+                      onChange={(e) => setRouteSearchTerm(e.target.value)}
                     />
-                  ))}
-                </div>
+                  </InputGroup>
+                  <div className="border rounded p-3 bg-light" style={{ maxHeight: '250px', overflowY: 'auto' }}>
+                    {routes.filter(route => {
+                      const searchLower = routeSearchTerm.toLowerCase();
+                      return route.name.toLowerCase().includes(searchLower) ||
+                             route.villages.some(v => v.toLowerCase().includes(searchLower));
+                    }).map((route) => (
+                      <Form.Check
+                        key={route.name}
+                        type="checkbox"
+                        label={`${route.name} (${route.villages.length} villages: ${route.villages.join(', ') || 'No villages'})`}
+                        checked={newAgent.route.includes(route.name)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setNewAgent({ ...newAgent, route: [...newAgent.route, route.name] });
+                          } else {
+                            setNewAgent({ ...newAgent, route: newAgent.route.filter(r => r !== route.name) });
+                          }
+                        }}
+                        className="mb-2 p-2 bg-white rounded"
+                      />
+                    ))}
+                    {routes.filter(route => {
+                      const searchLower = routeSearchTerm.toLowerCase();
+                      return route.name.toLowerCase().includes(searchLower) ||
+                             route.villages.some(v => v.toLowerCase().includes(searchLower));
+                    }).length === 0 && (
+                      <p className="text-muted text-center mb-0">No routes match your search</p>
+                    )}
+                  </div>
+                </>
               )}
               <Form.Text className="text-muted d-block mt-2">
                 Select one or more routes to assign to this agent
@@ -788,13 +888,17 @@ function AgentsPage() {
           </Modal.Body>
           <Modal.Footer>
             <Button variant="secondary" onClick={() => setShowAddAgentModal(false)}>Cancel</Button>
-            <Button variant="primary" type="submit">Add Agent</Button>
+            <Button type="submit" style={{ backgroundColor: 'rgb(238,95,14)', border: 'none', color: 'white' }}>Add Agent</Button>
           </Modal.Footer>
         </Form>
       </Modal>
 
       {/* Edit Agent Modal */}
-      <Modal show={showEditAgentModal} onHide={() => setShowEditAgentModal(false)} centered size="lg">
+      <Modal show={showEditAgentModal} onHide={() => {
+        setShowEditAgentModal(false);
+        setSelectedAgent(null);
+        setEditRouteSearchTerm('');
+      }} centered size="lg">
         <Modal.Header closeButton>
           <Modal.Title>Edit Agent</Modal.Title>
         </Modal.Header>
@@ -802,7 +906,16 @@ function AgentsPage() {
           <Modal.Body style={{ maxHeight: '65vh', overflowY: 'auto' }}>
             <Form.Group className="mb-3">
               <Form.Label>Agent Name</Form.Label>
-              <Form.Control value={editAgent.name} disabled />
+              <Form.Control 
+                type="text"
+                value={editAgent.name} 
+                onChange={e => setEditAgent({ ...editAgent, name: e.target.value })} 
+                placeholder="Enter agent name"
+                required 
+              />
+              <Form.Text className="text-muted">
+                You can edit the agent's name
+              </Form.Text>
             </Form.Group>
             <Form.Group className="mb-3">
               <Form.Label>Address</Form.Label>
@@ -841,28 +954,52 @@ function AgentsPage() {
             <Form.Group className="mb-3">
               <Form.Label>Assign Routes</Form.Label>
               {routes.length === 0 ? (
-                <p className="text-muted">No routes available. Please create routes first using "Manage Routes" button.</p>
+                <p className="text-muted">No routes available. Please create routes first using Route Management page.</p>
               ) : (
-                <div className="border rounded p-3 bg-light" style={{ maxHeight: '250px', overflowY: 'auto' }}>
-                  {routes.map((route) => (
-                    <Form.Check
-                      key={route.name}
-                      type="checkbox"
-                      label={`${route.name} (${route.villages.length} villages: ${route.villages.join(', ') || 'No villages'})`}
-                      checked={Array.isArray(editAgent.route) && editAgent.route.includes(route.name)}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          const currentRoutes = Array.isArray(editAgent.route) ? editAgent.route : [];
-                          setEditAgent({ ...editAgent, route: [...currentRoutes, route.name] });
-                        } else {
-                          const currentRoutes = Array.isArray(editAgent.route) ? editAgent.route : [];
-                          setEditAgent({ ...editAgent, route: currentRoutes.filter(r => r !== route.name) });
-                        }
-                      }}
-                      className="mb-2 p-2 bg-white rounded"
+                <>
+                  <InputGroup className="mb-2">
+                    <InputGroup.Text className="bg-white">
+                      <Search size={16} />
+                    </InputGroup.Text>
+                    <Form.Control
+                      type="text"
+                      placeholder="Search routes or villages..."
+                      value={editRouteSearchTerm}
+                      onChange={(e) => setEditRouteSearchTerm(e.target.value)}
                     />
-                  ))}
-                </div>
+                  </InputGroup>
+                  <div className="border rounded p-3 bg-light" style={{ maxHeight: '250px', overflowY: 'auto' }}>
+                    {routes.filter(route => {
+                      const searchLower = editRouteSearchTerm.toLowerCase();
+                      return route.name.toLowerCase().includes(searchLower) ||
+                             route.villages.some(v => v.toLowerCase().includes(searchLower));
+                    }).map((route) => (
+                      <Form.Check
+                        key={route.name}
+                        type="checkbox"
+                        label={`${route.name} (${route.villages.length} villages: ${route.villages.join(', ') || 'No villages'})`}
+                        checked={Array.isArray(editAgent.route) && editAgent.route.includes(route.name)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            const currentRoutes = Array.isArray(editAgent.route) ? editAgent.route : [];
+                            setEditAgent({ ...editAgent, route: [...currentRoutes, route.name] });
+                          } else {
+                            const currentRoutes = Array.isArray(editAgent.route) ? editAgent.route : [];
+                            setEditAgent({ ...editAgent, route: currentRoutes.filter(r => r !== route.name) });
+                          }
+                        }}
+                        className="mb-2 p-2 bg-white rounded"
+                      />
+                    ))}
+                    {routes.filter(route => {
+                      const searchLower = editRouteSearchTerm.toLowerCase();
+                      return route.name.toLowerCase().includes(searchLower) ||
+                             route.villages.some(v => v.toLowerCase().includes(searchLower));
+                    }).length === 0 && (
+                      <p className="text-muted text-center mb-0">No routes match your search</p>
+                    )}
+                  </div>
+                </>
               )}
               <Form.Text className="text-muted d-block mt-2">
                 Select one or more routes to assign to this agent
@@ -871,7 +1008,7 @@ function AgentsPage() {
           </Modal.Body>
           <Modal.Footer>
             <Button variant="secondary" onClick={() => setShowEditAgentModal(false)}>Cancel</Button>
-            <Button variant="primary" type="submit">Update Agent</Button>
+            <Button type="submit" style={{ backgroundColor: 'rgb(238,95,14)', border: 'none', color: 'white' }}>Update Agent</Button>
           </Modal.Footer>
         </Form>
       </Modal>
@@ -1017,9 +1154,9 @@ function AgentsPage() {
                       }}
                     />
                     <Button 
-                      variant="primary"
                       onClick={handleCreateRoute}
                       disabled={!newRouteName.trim()}
+                      style={{ backgroundColor: 'rgb(238,95,14)', border: 'none', color: 'white' }}
                     >
                       Create
                     </Button>
@@ -1088,9 +1225,9 @@ function AgentsPage() {
                     }}
                   />
                   <Button 
-                    variant="success"
                     onClick={() => handleAddVillageToTemp(route.name)}
                     disabled={!newVillage.trim() || selectedRouteForEdit !== route.name}
+                    style={{ backgroundColor: 'rgb(238,95,14)', border: 'none', color: 'white' }}
                   >
                     OK
                   </Button>
@@ -1157,9 +1294,9 @@ function AgentsPage() {
             Cancel
           </Button>
           <Button 
-            variant="primary" 
             onClick={handleSaveAllRoutes}
             disabled={tempRoutes.length === 0}
+            style={{ backgroundColor: 'rgb(238,95,14)', border: 'none', color: 'white' }}
           >
             Save Route
           </Button>

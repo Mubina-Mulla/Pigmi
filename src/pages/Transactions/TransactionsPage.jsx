@@ -27,6 +27,7 @@ function TransactionsPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedRoute, setSelectedRoute] = useState("All Routes");
   const [selectedAgent, setSelectedAgent] = useState("All Agents");
+  const [selectedDate, setSelectedDate] = useState("");
 
   useEffect(() => {
     const customersRef = ref(database, "customers");
@@ -119,17 +120,32 @@ function TransactionsPage() {
       (t.accountNo && t.accountNo.includes(searchTerm)) ||
       (t.agentName && t.agentName.toLowerCase().includes(searchTerm.toLowerCase()));
     const matchesRoute = selectedRoute === "All Routes" || t.route === selectedRoute;
-    const matchesAgent = selectedAgent === "All Agents" || t.agentName === selectedAgent;
-    return matchesSearch && matchesRoute && matchesAgent;
+    // Case-insensitive agent name comparison
+    const matchesAgent = selectedAgent === "All Agents" || 
+      (t.agentName && t.agentName.toLowerCase() === selectedAgent.toLowerCase());
+    
+    // Date filtering - show transactions for selected date only
+    let matchesDate = true;
+    if (selectedDate) {
+      const transactionDate = new Date(t.timestamp || t.date);
+      const selected = new Date(selectedDate);
+      const dayStart = new Date(selected);
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(selected);
+      dayEnd.setHours(23, 59, 59, 999);
+      matchesDate = transactionDate >= dayStart && transactionDate <= dayEnd;
+    }
+    
+    return matchesSearch && matchesRoute && matchesAgent && matchesDate;
   });
 
   const totalDeposits = filteredTransactions
     .filter(t => t.type === "DEPOSIT" || t.type === "deposit")
-    .reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
+    .reduce((sum, t) => sum + (parseInt(t.amount) || 0), 0);
 
   const totalWithdrawals = filteredTransactions
     .filter(t => t.type === "WITHDRAWAL" || t.type === "withdrawal")
-    .reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
+    .reduce((sum, t) => sum + (parseInt(t.amount) || 0), 0);
 
   const netAmount = totalDeposits - totalWithdrawals;
 
@@ -201,7 +217,7 @@ function TransactionsPage() {
       <Card className="border-0 shadow-sm">
         <Card.Body className="p-3">
           <Row className="mb-3 g-2">
-            <Col md={5}>
+            <Col md={4}>
               <InputGroup>
                 <InputGroup.Text><Search size={16} /></InputGroup.Text>
                 <Form.Control 
@@ -227,11 +243,37 @@ function TransactionsPage() {
                 </Form.Select>
               </InputGroup>
             </Col>
-            <Col md={3} className="d-flex justify-content-end">
-              <Button variant="outline-success" size="sm" onClick={exportToCSV}>
+            <Col md={2}>
+              <Form.Control 
+                type="date" 
+                value={selectedDate}
+                onChange={e => setSelectedDate(e.target.value)}
+                placeholder="Select Date"
+              />
+            </Col>
+            <Col md={1}>
+              <Button size="sm" onClick={exportToCSV} style={{ backgroundColor: 'rgb(238,95,14)', border: 'none', color: 'white', width: '100%' }}>
                 <Download size={14} className="me-1" />
                 Export CSV
               </Button>
+            </Col>
+            <Col md={1}>
+              {(selectedDate || searchTerm || selectedAgent !== "All Agents" || selectedRoute !== "All Routes") && (
+                <Button 
+                  variant="outline-secondary" 
+                  size="sm" 
+                  onClick={() => {
+                    setSelectedDate("");
+                    setSearchTerm("");
+                    setSelectedAgent("All Agents");
+                    setSelectedRoute("All Routes");
+                  }}
+                  title="Clear all filters"
+                  className="w-100"
+                >
+                  Clear
+                </Button>
+              )}
             </Col>
           </Row>
 
@@ -270,7 +312,7 @@ function TransactionsPage() {
                         </Badge>
                       </td>
                       <td className={`fw-bold ${isDeposit ? 'text-success' : 'text-danger'}`}>
-                        ₹{(parseFloat(t.amount) || 0).toLocaleString()}
+                        ₹{(parseInt(t.amount) || 0).toLocaleString()}
                       </td>
                       <td>
                         {(t.mode || 'cash').toUpperCase() === 'CASH' ? (

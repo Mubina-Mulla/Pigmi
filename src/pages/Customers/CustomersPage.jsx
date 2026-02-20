@@ -147,8 +147,8 @@ function CustomersPage() {
       const customerList = [];
       Object.entries(customerData).forEach(([customerId, customerInfo]) => {
         if (customerInfo && typeof customerInfo === 'object') {
-          const totalAmount = parseFloat(customerInfo.totalAmount) || 0;
-          const withdrawnAmount = parseFloat(customerInfo.withdrawnAmount) || 0;
+          const totalAmount = parseInt(customerInfo.totalAmount) || 0;
+          const withdrawnAmount = parseInt(customerInfo.withdrawnAmount) || 0;
           const balance = totalAmount - withdrawnAmount;
           let createdAt = "";
           if (customerInfo.createdDate) {
@@ -169,7 +169,8 @@ function CustomersPage() {
             mobile: customerInfo.mobile || customerInfo.mobileNumber || customerInfo.phone || "",
             village: customerInfo.village || "",
             address: customerInfo.address || "",
-            aadharNumber: customerInfo.aadharNumber || "",
+            aadharNumber: customerInfo.aadhaarNumber || customerInfo.aadharNumber || "",
+            aadhaarNumber: customerInfo.aadhaarNumber || customerInfo.aadharNumber || "",
             totalAmount: totalAmount,
             withdrawnAmount: withdrawnAmount,
             balance: balance,
@@ -215,12 +216,86 @@ function CustomersPage() {
     });
   }, []);
 
+  // Sync global count with actual customer count
+  const syncGlobalCount = async () => {
+    try {
+      const customersRef = ref(database, "customers");
+      const snapshot = await get(customersRef);
+      
+      if (snapshot.exists()) {
+        const customerData = snapshot.val();
+        const actualCount = Object.keys(customerData).length;
+        
+        // Update global count to match actual customer count
+        const globalCountRef = ref(database, 'globalCount');
+        await set(globalCountRef, actualCount);
+        
+        console.log(`Global count synced: ${actualCount} customers`);
+        return actualCount;
+      } else {
+        // No customers exist, set count to 0
+        const globalCountRef = ref(database, 'globalCount');
+        await set(globalCountRef, 0);
+        console.log('Global count synced: 0 customers');
+        return 0;
+      }
+    } catch (error) {
+      console.error('Error syncing global count:', error);
+      toast.error('Failed to sync customer count');
+    }
+  };
+
+  // Sync agent customer count with actual customer data
+  const syncAgentCustomerCount = async () => {
+    try {
+      const customersRef = ref(database, "customers");
+      const snapshot = await get(customersRef);
+      
+      // Count customers per agent
+      const agentCounts = {};
+      
+      if (snapshot.exists()) {
+        const customerData = snapshot.val();
+        Object.values(customerData).forEach(customer => {
+          if (customer && customer.agentName) {
+            agentCounts[customer.agentName] = (agentCounts[customer.agentName] || 0) + 1;
+          }
+        });
+      }
+      
+      // Update agentCustomerCount in Firebase
+      const agentCustomerCountRef = ref(database, 'agentCustomerCount');
+      
+      if (Object.keys(agentCounts).length > 0) {
+        await set(agentCustomerCountRef, agentCounts);
+        console.log('Agent customer counts synced:', agentCounts);
+      } else {
+        // No customers with agents, clear the node
+        await remove(agentCustomerCountRef);
+        console.log('Agent customer counts cleared (no customers)');
+      }
+      
+      return agentCounts;
+    } catch (error) {
+      console.error('Error syncing agent customer count:', error);
+      toast.error('Failed to sync agent customer count');
+    }
+  };
+
+  // Call sync on component mount
+  useEffect(() => {
+    syncGlobalCount();
+    syncAgentCustomerCount();
+  }, []);
+
   const filteredCustomers = customers.filter(c => {
     const routeString = Array.isArray(c.route) ? c.route.join(', ').toLowerCase() : (c.route || '').toLowerCase();
+    const mobile = c.mobileNumber || c.mobile || '';
+    const accountNo = c.accountNumber || c.accountNo || '';
     const matchesSearch = searchTerm === "" || 
       c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      c.mobile.includes(searchTerm) ||
-      c.accountNo.includes(searchTerm) ||
+      mobile.includes(searchTerm) ||
+      accountNo.includes(searchTerm) ||
       c.agentName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       routeString.includes(searchTerm.toLowerCase());
     return matchesSearch;
@@ -344,14 +419,14 @@ function CustomersPage() {
     }
     
     // Validate initial deposit
-    const initialDeposit = parseFloat(newCustomer.initialDeposit);
+    const initialDeposit = parseInt(newCustomer.initialDeposit);
     if (!newCustomer.initialDeposit || isNaN(initialDeposit) || initialDeposit < 200) {
       toast.error('Please enter a valid initial deposit amount. Minimum deposit is ₹200');
       return;
     }
     
     // Check if account number already exists
-    const existingCustomer = customers.find(c => c.accountNo === newCustomer.accountNo);
+    const existingCustomer = customers.find(c => (c.accountNumber || c.accountNo) === newCustomer.accountNo);
     if (existingCustomer) {
       toast.error('Account number already exists. Please use a different account number.');
       setValidationErrors({...validationErrors, accountNo: 'Account number already exists'});
@@ -366,15 +441,15 @@ function CustomersPage() {
     )?.name || '';
     
     const customerData = {
-      accountNo,
+      accountNumber: accountNo,
       name: newCustomer.name,
-      mobile: newCustomer.mobile,
+      mobileNumber: newCustomer.mobile,
       address: newCustomer.address,
       village: newCustomer.village,
-      aadharNumber: newCustomer.aadharNumber,
+      aadhaarNumber: newCustomer.aadharNumber,
       agentName: newCustomer.agentName,
       route: customerRoute,
-      totalAmount: parseFloat(newCustomer.initialDeposit) || 0,
+      totalAmount: parseInt(newCustomer.initialDeposit) || 0,
       withdrawnAmount: 0,
       createdDate: Date.now(),
       lastUpdated: Date.now(),
@@ -382,11 +457,11 @@ function CustomersPage() {
       paymentMethod: "Cash"
     };
 
-    if (parseFloat(newCustomer.initialDeposit) > 0) {
+    if (parseInt(newCustomer.initialDeposit) > 0) {
       const transactionId = generateTransactionId();
       const transaction = {
         type: "deposit",
-        amount: parseFloat(newCustomer.initialDeposit),
+        amount: parseInt(newCustomer.initialDeposit),
         date: new Date().toISOString().split('T')[0],
         timestamp: Date.now(),
         mode: "cash",
@@ -399,11 +474,9 @@ function CustomersPage() {
     // Save customer data
     await set(ref(database, `customers/${accountNo}`), customerData);
     
-    // Increment global count
-    const globalCountRef = ref(database, 'globalCount');
-    const globalCountSnapshot = await get(globalCountRef);
-    const currentCount = globalCountSnapshot.exists() ? globalCountSnapshot.val() : 0;
-    await set(globalCountRef, currentCount + 1);
+    // Sync global count and agent customer count after adding customer
+    await syncGlobalCount();
+    await syncAgentCustomerCount();
     
     // Close modal first
     setShowAddCustomerModal(false);
@@ -533,7 +606,7 @@ function CustomersPage() {
     const transactionId = generateTransactionId();
     const transaction = {
       type: newPayment.type,
-      amount: parseFloat(newPayment.amount),
+      amount: parseInt(newPayment.amount),
       date: new Date().toISOString().split('T')[0],
       timestamp: Date.now(),
       mode: newPayment.mode,
@@ -550,9 +623,9 @@ function CustomersPage() {
     
     const updates = {};
     if (newPayment.type === "deposit") {
-      updates[`customers/${selectedCustomerForPayment.accountNo}/totalAmount`] = (selectedCustomerForPayment.totalAmount || 0) + parseFloat(newPayment.amount);
+      updates[`customers/${selectedCustomerForPayment.accountNo}/totalAmount`] = (selectedCustomerForPayment.totalAmount || 0) + parseInt(newPayment.amount);
     } else {
-      updates[`customers/${selectedCustomerForPayment.accountNo}/withdrawnAmount`] = (selectedCustomerForPayment.withdrawnAmount || 0) + parseFloat(newPayment.amount);
+      updates[`customers/${selectedCustomerForPayment.accountNo}/withdrawnAmount`] = (selectedCustomerForPayment.withdrawnAmount || 0) + parseInt(newPayment.amount);
     }
     updates[`customers/${selectedCustomerForPayment.accountNo}/lastUpdated`] = Date.now();
     
@@ -567,9 +640,9 @@ function CustomersPage() {
     setSelectedCustomerForEdit(customer);
     setEditCustomer({
       name: customer.name,
-      mobile: customer.mobile,
+      mobile: customer.mobileNumber || customer.mobile,
       address: customer.address || "",
-      aadharNumber: customer.aadharNumber || "",
+      aadharNumber: customer.aadhaarNumber || customer.aadharNumber || "",
       agentName: customer.agentName,
       route: Array.isArray(customer.route) ? customer.route[0] || '' : (customer.route || '')
     });
@@ -588,16 +661,21 @@ function CustomersPage() {
       return;
     }
     
+    const accountNo = selectedCustomerForEdit.accountNumber || selectedCustomerForEdit.accountNo;
     const updates = {};
-    updates[`customers/${selectedCustomerForEdit.accountNo}/name`] = editCustomer.name;
-    updates[`customers/${selectedCustomerForEdit.accountNo}/mobile`] = editCustomer.mobile;
-    updates[`customers/${selectedCustomerForEdit.accountNo}/address`] = editCustomer.address;
-    updates[`customers/${selectedCustomerForEdit.accountNo}/aadharNumber`] = editCustomer.aadharNumber;
+    updates[`customers/${accountNo}/name`] = editCustomer.name;
+    updates[`customers/${accountNo}/mobileNumber`] = editCustomer.mobile;
+    updates[`customers/${accountNo}/address`] = editCustomer.address;
+    updates[`customers/${accountNo}/aadhaarNumber`] = editCustomer.aadharNumber;
     updates[`customers/${selectedCustomerForEdit.accountNo}/agentName`] = editCustomer.agentName;
     updates[`customers/${selectedCustomerForEdit.accountNo}/route`] = editCustomer.route;
     updates[`customers/${selectedCustomerForEdit.accountNo}/lastUpdated`] = Date.now();
     
     await update(ref(database), updates);
+    
+    // Sync agent customer count after updating customer (agent might have changed)
+    await syncAgentCustomerCount();
+    
     toast.success(`Customer ${editCustomer.name} updated successfully!`);
     setShowEditCustomerModal(false);
     setSelectedCustomerForEdit(null);
@@ -650,14 +728,9 @@ function CustomersPage() {
         // Delete customer data
         await remove(ref(database, `customers/${customer.accountNo}`));
         
-        // Decrement global count
-        const globalCountRef = ref(database, 'globalCount');
-        const globalCountSnapshot = await get(globalCountRef);
-        if (globalCountSnapshot.exists()) {
-          const currentCount = globalCountSnapshot.val() || 0;
-          const newCount = Math.max(0, currentCount - 1);
-          await set(globalCountRef, newCount);
-        }
+        // Sync global count and agent customer count after deleting customer
+        await syncGlobalCount();
+        await syncAgentCustomerCount();
         
         toast.success(`Customer ${customer.name} moved to Recycle Bin. It will be kept for 5 days.`);
       } catch (error) {
@@ -671,7 +744,10 @@ function CustomersPage() {
     csvContent += "Account No,Name,Mobile Number,Address,Aadhar Number,Deposit Amount,Withdrawn Amount,Balance,Agent,Route,Status,Created Date\n";
     filteredCustomers.forEach(c => {
       const address = (c.address || '').replace(/,/g, ';'); // Replace commas in address to avoid CSV issues
-      csvContent += `${c.accountNo},${c.name},${c.mobile},${address},${c.aadharNumber || ''},${c.totalAmount || 0},${c.withdrawnAmount || 0},${c.balance || 0},${c.agentName},${c.route},${c.status || 'Active'},${c.createdAt}\n`;
+      const accountNo = c.accountNumber || c.accountNo;
+      const mobile = c.mobileNumber || c.mobile;
+      const aadhar = c.aadhaarNumber || c.aadharNumber || '';
+      csvContent += `${accountNo},${c.name},${mobile},${address},${aadhar},${c.totalAmount || 0},${c.withdrawnAmount || 0},${c.balance || 0},${c.agentName},${c.route},${c.status || 'Active'},${c.createdAt}\n`;
     });
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
@@ -717,11 +793,11 @@ function CustomersPage() {
               </InputGroup>
             </Col>
             <Col md={6} className="d-flex justify-content-end gap-2">
-              <Button variant="primary" onClick={handleOpenAddCustomerModal} size="sm">
+              <Button onClick={handleOpenAddCustomerModal} size="sm" style={{ backgroundColor: 'rgb(238,95,14)', border: 'none', color: 'white' }}>
                 <Plus size={14} className="me-1" />
                 Add Customer
               </Button>
-              <Button variant="outline-success" size="sm" onClick={exportToCSV}>
+              <Button size="sm" onClick={exportToCSV} style={{ backgroundColor: 'rgb(238,95,14)', border: 'none', color: 'white' }}>
                 <Download size={14} className="me-1" />
                 Export CSV
               </Button>
@@ -767,12 +843,12 @@ function CustomersPage() {
                     key={c.id} 
                     className="align-middle" 
                     style={{ cursor: 'pointer' }}
-                    onClick={() => navigate(`/customers/${c.accountNo}`)}
+                    onClick={() => navigate(`/customers/${c.accountNumber || c.accountNo}`)}
                   >
-                    <td><Badge bg="outline-primary" text="dark">{c.accountNo || c.customerId}</Badge></td>
+                    <td><Badge bg="outline-primary" text="dark">{c.accountNumber || c.accountNo || c.customerId}</Badge></td>
                     <td>
                       <div className="fw-semibold">{c.name}</div>
-                      <small className="text-muted">{c.mobile || c.mobileNumber}</small>
+                      <small className="text-muted">{c.mobileNumber || c.mobile}</small>
                     </td>
                     <td>
                       <small className="text-muted">
@@ -781,8 +857,8 @@ function CustomersPage() {
                     </td>
                     <td>
                       <small className="text-muted">
-                        {c.aadharNumber ? (
-                          <span className="font-monospace">{c.aadharNumber}</span>
+                        {(c.aadhaarNumber || c.aadharNumber) ? (
+                          <span className="font-monospace">{c.aadhaarNumber || c.aadharNumber}</span>
                         ) : (
                           <span className="text-danger">Not provided</span>
                         )}
@@ -1104,7 +1180,6 @@ function CustomersPage() {
                   <Form.Label>Initial Deposit</Form.Label>
                   <Form.Control 
                     type="number" 
-                    step="0.01"
                     min="200"
                     value={newCustomer.initialDeposit} 
                     onChange={e => setNewCustomer({...newCustomer, initialDeposit: e.target.value})} 
@@ -1112,7 +1187,7 @@ function CustomersPage() {
                     placeholder="Enter initial deposit amount"
                   />
                   <Form.Text className="text-muted">
-                    Minimum deposit: ₹200.00
+                    Minimum deposit: ₹200
                   </Form.Text>
                 </Form.Group>
               </Col>
@@ -1120,7 +1195,7 @@ function CustomersPage() {
           </Modal.Body>
           <Modal.Footer>
             <Button variant="secondary" onClick={() => setShowAddCustomerModal(false)}>Cancel</Button>
-            <Button variant="primary" type="submit">Add Customer</Button>
+            <Button type="submit" style={{ backgroundColor: 'rgb(238,95,14)', border: 'none', color: 'white' }}>Add Customer</Button>
           </Modal.Footer>
         </Form>
       </Modal>
@@ -1182,7 +1257,7 @@ function CustomersPage() {
           </Modal.Body>
           <Modal.Footer>
             <Button variant="secondary" onClick={() => setShowAddPaymentModal(false)}>Cancel</Button>
-            <Button variant="primary" type="submit">Add Payment</Button>
+            <Button type="submit" style={{ backgroundColor: 'rgb(238,95,14)', border: 'none', color: 'white' }}>Add Payment</Button>
           </Modal.Footer>
         </Form>
       </Modal>
@@ -1249,7 +1324,7 @@ function CustomersPage() {
           </Modal.Body>
           <Modal.Footer>
             <Button variant="secondary" onClick={() => setShowEditCustomerModal(false)}>Cancel</Button>
-            <Button variant="primary" type="submit">Update Customer</Button>
+            <Button type="submit" style={{ backgroundColor: 'rgb(238,95,14)', border: 'none', color: 'white' }}>Update Customer</Button>
           </Modal.Footer>
         </Form>
       </Modal>

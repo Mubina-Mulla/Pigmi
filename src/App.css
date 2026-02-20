@@ -3,6 +3,22 @@
   background: white;
 }
 
+/* Page transition animations */
+.page-transition {
+  animation: pageSlideIn 0.6s ease-in-out;
+}
+
+@keyframes pageSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-25px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 /* Login Page Styling */
 /* Login Page Styling - Split Layout */
 .login-container {
@@ -419,8 +435,21 @@
   }
 }
 
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .fade-in {
   animation: fadeIn 0.5s ease-in;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
 }
 
 /* Responsive */

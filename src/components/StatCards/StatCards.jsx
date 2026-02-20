@@ -45,10 +45,8 @@ const StatCards = ({ totalCustomers, totalAmount, totalWithdrawn, netAmount, onC
         <Col xs={12} sm={6} md={3} key={stat.id}>
           <Card 
             className="stat-card h-100 border-0 shadow-sm" 
-            style={{ cursor: 'pointer', transition: 'transform 0.2s' }}
+            style={{ cursor: 'pointer' }}
             onClick={() => onCardClick && onCardClick(stat.id)}
-            onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
-            onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
           >
             <Card.Body className="p-3">
               <div className="d-flex align-items-center">

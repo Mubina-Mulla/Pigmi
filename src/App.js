@@ -9,6 +9,8 @@ import DailyReport from './pages/DailyReport';
 import CustomersPage from './pages/Customers/CustomersPage';
 import CustomerDashboard from './pages/Customers/CustomerDashboard';
 import AgentsPage from './pages/Agents/AgentsPage';
+import AgentDashboard from './pages/Agents/AgentDashboard';
+import RoutesPage from './pages/Routes/RoutesPage';
 import TransactionsPage from './pages/Transactions/TransactionsPage';
 import RecycleBinPage from './pages/RecycleBin/RecycleBinPage';
 import PrivateRoute from './components/PrivateRoute';
@@ -100,6 +102,30 @@ function App() {
                   <PrivateRoute role="admin">
                     <AdminLayout>
                       <AgentsPage />
+                    </AdminLayout>
+                  </PrivateRoute>
+                }
+              />
+
+              {/* Protected Agent Dashboard route */}
+              <Route
+                path="/agents/:agentName"
+                element={
+                  <PrivateRoute role="admin">
+                    <AdminLayout>
+                      <AgentDashboard />
+                    </AdminLayout>
+                  </PrivateRoute>
+                }
+              />
+
+              {/* Protected Routes Management route */}
+              <Route
+                path="/routes"
+                element={
+                  <PrivateRoute role="admin">
+                    <AdminLayout>
+                      <RoutesPage />
                     </AdminLayout>
                   </PrivateRoute>
                 }

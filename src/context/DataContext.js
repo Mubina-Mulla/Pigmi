@@ -105,7 +105,7 @@ export const DataProvider = ({ children }) => {
         accountNo: customer.accountNo,
         customerName: customer.name,
         type,
-        amount: parseFloat(amount),
+        amount: parseInt(amount),
         date: new Date().toISOString().split('T')[0],
         agentName,
         timestamp: new Date().toISOString(),
@@ -120,9 +120,9 @@ export const DataProvider = ({ children }) => {
       const updatedCustomer = { ...customer };
       
       if (type === 'deposit') {
-        updatedCustomer.totalAmount = (customer.totalAmount || 0) + parseFloat(amount);
+        updatedCustomer.totalAmount = (customer.totalAmount || 0) + parseInt(amount);
       } else if (type === 'withdrawal' || type === 'withdraw') {
-        updatedCustomer.withdrawnAmount = (customer.withdrawnAmount || 0) + parseFloat(amount);
+        updatedCustomer.withdrawnAmount = (customer.withdrawnAmount || 0) + parseInt(amount);
       }
       
       await update(customerRef, {
