@@ -12,7 +12,7 @@ import {
   Form,
   InputGroup
 } from "react-bootstrap";
-import { ref, onValue, set, update } from "firebase/database";
+import { ref, onValue, set, update, get, remove } from "firebase/database";
 import { database } from "../../firebase";
 import { ArrowLeft, Plus, TrendingUp, TrendingDown, DollarSign, Calendar, Search, Download } from "react-feather";
 import { toast } from 'react-toastify';
@@ -29,6 +29,7 @@ function CustomerDashboard() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [showAddTransactionModal, setShowAddTransactionModal] = useState(false);
+  const [currentTransactionId, setCurrentTransactionId] = useState("");
   const [newTransaction, setNewTransaction] = useState({
     type: "deposit",
     amount: "",
@@ -38,30 +39,104 @@ function CustomerDashboard() {
   });
 
   useEffect(() => {
+    // Clear any cached transactions first
+    setTransactions([]);
+    setLoading(true);
+    
+    let isUnmounting = false;
+    
     // Fetch customer data
     const customerRef = ref(database, `customers/${accountNo}`);
-    onValue(customerRef, (snapshot) => {
+    const unsubscribeCustomer = onValue(customerRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         setCustomer({
           accountNo,
           ...data
         });
+        setLoading(false);
+      } else if (!isUnmounting) {
+        // Customer doesn't exist - silently redirect
+        navigate('/customers', { replace: true });
       }
-      setLoading(false);
     });
 
-    // Fetch transactions
-    const transactionsRef = ref(database, `transactions/${accountNo}`);
-    onValue(transactionsRef, (snapshot) => {
-      const data = snapshot.val() || {};
-      const transactionList = Object.entries(data).map(([id, trans]) => ({
-        id,
-        ...trans
-      })).sort((a, b) => b.timestamp - a.timestamp);
-      setTransactions(transactionList);
-    });
-  }, [accountNo]);
+    // Fetch transactions from both agent's customer path and global path
+    const fetchTransactions = async () => {
+      try {
+        const customerSnapshot = await get(ref(database, `customers/${accountNo}`));
+        const customerData = customerSnapshot.val();
+        
+        console.log("=== FETCHING FRESH TRANSACTIONS FROM FIREBASE ===");
+        console.log("Account No:", accountNo);
+        console.log("Customer Data:", customerData);
+        
+        const allTransactions = new Map(); // Use Map to avoid duplicates
+        
+        // Set up real-time listener for global transactions
+        const globalTransPath = `transactions/${accountNo}`;
+        const globalTransRef = ref(database, globalTransPath);
+        const unsubscribeGlobal = onValue(globalTransRef, (globalSnapshot) => {
+          const globalData = globalSnapshot.val();
+          console.log("Real-time update - Global transactions data:", globalData);
+          
+          if (globalData && Object.keys(globalData).length > 0) {
+            Object.entries(globalData).forEach(([id, trans]) => {
+              allTransactions.set(id, { id, ...trans });
+            });
+          }
+          
+          // Update state with all collected transactions
+          const transactionList = Array.from(allTransactions.values())
+            .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+          console.log("✅ Total transactions found:", transactionList.length);
+          setTransactions(transactionList);
+        });
+        
+        // Also set up listener for agent's transactions if agent exists
+        let unsubscribeAgent = null;
+        if (customerData && customerData.agentName) {
+          const transactionsPath = `agents/${customerData.agentName}/customers/${accountNo}/transactions`;
+          console.log("Also fetching from agent path:", transactionsPath);
+          
+          const transactionsRef = ref(database, transactionsPath);
+          unsubscribeAgent = onValue(transactionsRef, (snapshot) => {
+            const data = snapshot.val();
+            console.log("Real-time update - Agent path data:", data);
+            
+            if (data && Object.keys(data).length > 0) {
+              Object.entries(data).forEach(([id, trans]) => {
+                allTransactions.set(id, { id, ...trans });
+              });
+              
+              // Update state with all collected transactions
+              const transactionList = Array.from(allTransactions.values())
+                .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+              console.log("✅ Total transactions found:", transactionList.length);
+              setTransactions(transactionList);
+            }
+          });
+        }
+        
+        // Return cleanup function
+        return () => {
+          unsubscribeGlobal();
+          if (unsubscribeAgent) unsubscribeAgent();
+        };
+      } catch (error) {
+        console.error("❌ Error fetching transactions:", error);
+        setTransactions([]);
+      }
+    };
+    
+    fetchTransactions();
+    
+    // Cleanup function
+    return () => {
+      isUnmounting = true;
+      unsubscribeCustomer();
+    };
+  }, [accountNo, navigate]);
 
   const handleAddTransaction = async (e) => {
     e.preventDefault();
@@ -72,16 +147,44 @@ function CustomerDashboard() {
       return;
     }
 
-    const transactionId = generateTransactionId();
+    const transactionId = currentTransactionId || generateTransactionId();
+    const timestamp = Date.now();
+    const currentDate = new Date(timestamp);
+    
+    // Format date as DD/MM/YYYY to match app format
+    const formattedDate = currentDate.toLocaleDateString('en-GB');
+    
+    // Format time as HH:MM:SS to match app format
+    const formattedTime = currentDate.toLocaleTimeString('en-GB', { 
+      hour: '2-digit', 
+      minute: '2-digit', 
+      second: '2-digit' 
+    });
+    
+    // Create description based on type and mode
+    const description = newTransaction.type === "deposit" 
+      ? `Deposit (${newTransaction.mode.charAt(0).toUpperCase() + newTransaction.mode.slice(1)})`
+      : `Withdrawal (${newTransaction.mode.charAt(0).toUpperCase() + newTransaction.mode.slice(1)})`;
+    
     const transaction = {
-      type: newTransaction.type,
+      transactionId: transactionId,
+      agentId: customer.agentName || "admin",
+      agentName: customer.agentName || "admin",
       amount: amount,
-      date: new Date().toISOString().split('T')[0],
-      timestamp: Date.now(),
+      date: formattedDate,
+      description: description,
       mode: newTransaction.mode,
-      note: newTransaction.note || "",
+      route: Array.isArray(customer.route) ? customer.route.join(', ') : (customer.route || ""),
+      time: formattedTime,
+      timestamp: timestamp,
+      type: newTransaction.type.toUpperCase(),
       addedBy: "admin"
     };
+    
+    // Add note if provided
+    if (newTransaction.note) {
+      transaction.note = newTransaction.note;
+    }
     
     // Add receiver number if mode is online
     if (newTransaction.mode === "online" && newTransaction.receiverPhoneNumber) {
@@ -89,26 +192,110 @@ function CustomerDashboard() {
     }
 
     try {
-      // Save transaction
-      await set(ref(database, `transactions/${accountNo}/${transactionId}`), transaction);
+      // Save transaction under the agent's customer path
+      const agentId = customer.agentName || "admin";
+      const dbPath = `agents/${agentId}/customers/${accountNo}/transactions/${transactionId}`;
+      
+      console.log("=== TRANSACTION DEBUG ===");
+      console.log("Agent ID:", agentId);
+      console.log("Account No:", accountNo);
+      console.log("Transaction ID:", transactionId);
+      console.log("Firebase Path:", dbPath);
+      console.log("Transaction Object:", JSON.stringify(transaction, null, 2));
+      
+      await set(ref(database, dbPath), transaction);
+      
+      // Save to global transactions node grouped by account number
+      const globalTransactionPath = `transactions/${accountNo}/${transactionId}`;
+      const globalTransaction = {
+        ...transaction,
+        accountNo: accountNo,
+        customerName: customer.name || "Unknown"
+      };
+      await set(ref(database, globalTransactionPath), globalTransaction);
+      console.log("✅ Transaction saved to global transactions node:", globalTransactionPath);
+      
+      // Verify transaction was saved
+      const verifySnapshot = await get(ref(database, dbPath));
+      if (verifySnapshot.exists()) {
+        console.log("✅ Transaction successfully saved to Firebase!");
+        console.log("Verified data:", verifySnapshot.val());
+      } else {
+        console.log("❌ Transaction NOT found in Firebase after save!");
+      }
 
       // Update customer totals
       const updates = {};
       if (newTransaction.type === "deposit") {
         updates[`customers/${accountNo}/totalAmount`] = (customer.totalAmount || 0) + amount;
+        updates[`agents/${agentId}/customers/${accountNo}/totalAmount`] = (customer.totalAmount || 0) + amount;
       } else {
         updates[`customers/${accountNo}/withdrawnAmount`] = (customer.withdrawnAmount || 0) + amount;
+        updates[`agents/${agentId}/customers/${accountNo}/withdrawnAmount`] = (customer.withdrawnAmount || 0) + amount;
       }
       updates[`customers/${accountNo}/lastUpdated`] = Date.now();
+      updates[`agents/${agentId}/customers/${accountNo}/lastUpdated`] = Date.now();
       
       await update(ref(database), updates);
 
       setShowAddTransactionModal(false);
       setNewTransaction({ type: "deposit", amount: "", note: "", mode: "cash", receiverPhoneNumber: "" });
+      setCurrentTransactionId("");
       toast.success(`${newTransaction.type === "deposit" ? "Deposit" : "Withdrawal"} added successfully!`);
     } catch (error) {
       console.error("Error adding transaction:", error);
       toast.error("Failed to add transaction");
+    }
+  };
+
+  const handleCleanupTransactions = async () => {
+    if (!window.confirm("This will delete ALL transactions for this customer from Firebase. Are you sure?")) {
+      return;
+    }
+
+    try {
+      const agentId = customer.agentName;
+      
+      // Get all transaction IDs before deleting
+      const agentTransPath = `agents/${agentId}/customers/${accountNo}/transactions`;
+      const transSnapshot = await get(ref(database, agentTransPath));
+      
+      // Delete from agent's path
+      await remove(ref(database, agentTransPath));
+      console.log("✅ Deleted transactions from:", agentTransPath);
+      
+      // Delete each transaction from global transactions node
+      if (transSnapshot.exists()) {
+        const transData = transSnapshot.val();
+        for (const transactionId of Object.keys(transData)) {
+          const globalPath = `transactions/${transactionId}`;
+          await remove(ref(database, globalPath));
+          console.log("✅ Deleted from global transactions:", globalPath);
+        }
+      }
+      
+      // Delete from old global transactions path if it exists (by account number)
+      const globalTransPath = `transactions/${accountNo}`;
+      await remove(ref(database, globalTransPath));
+      console.log("✅ Deleted transactions from:", globalTransPath);
+      
+      // Reset customer totals to 0
+      const updates = {};
+      updates[`customers/${accountNo}/totalAmount`] = 0;
+      updates[`customers/${accountNo}/withdrawnAmount`] = 0;
+      updates[`agents/${agentId}/customers/${accountNo}/totalAmount`] = 0;
+      updates[`agents/${agentId}/customers/${accountNo}/withdrawnAmount`] = 0;
+      updates[`customers/${accountNo}/lastUpdated`] = Date.now();
+      updates[`agents/${agentId}/customers/${accountNo}/lastUpdated`] = Date.now();
+      
+      await update(ref(database), updates);
+      console.log("✅ Reset customer totals to 0");
+      
+      setTransactions([]);
+      toast.success("All transactions cleaned up successfully!");
+    } catch (error) {
+      console.error("❌ Error cleaning up transactions:", error);
+      toast.error("Failed to cleanup transactions: " + error.message);
     }
   };
 
@@ -152,7 +339,9 @@ function CustomerDashboard() {
       }).split(', ');
       const date = dateTime[0] || '';
       const time = dateTime[1] || '';
-      const type = trans.type === "deposit" ? "Deposit" : "Withdrawal";
+      const type = trans.type?.toUpperCase() === "DEPOSIT" || 
+                   trans.description?.toLowerCase().includes("deposit") 
+                   ? "Deposit" : "Withdrawal";
       const amount = parseInt(trans.amount) || 0;
       const mode = (trans.mode || 'Cash').toUpperCase();
       const receiverNumber = trans.mode?.toLowerCase() === 'online' && trans.receiverPhoneNumber ? trans.receiverPhoneNumber : '-';
@@ -209,7 +398,11 @@ function CustomerDashboard() {
         </div>
         <Button
           style={{ backgroundColor: 'rgb(239,97,16)', border: 'none', color: '#ffffff' }}
-          onClick={() => setShowAddTransactionModal(true)}
+          onClick={() => {
+            const newTxnId = generateTransactionId();
+            setCurrentTransactionId(newTxnId);
+            setShowAddTransactionModal(true);
+          }}
         >
           <Plus size={16} className="me-1" />
           Add Transaction
@@ -346,6 +539,7 @@ function CustomerDashboard() {
             <Table hover className="mb-0">
               <thead className="bg-light">
                 <tr>
+                  <th>Transaction ID</th>
                   <th>Date</th>
                   <th>Type</th>
                   <th>Amount</th>
@@ -360,6 +554,9 @@ function CustomerDashboard() {
                   filteredTransactions.map((trans) => (
                     <tr key={trans.id}>
                       <td>
+                        <Badge bg="secondary" className="font-monospace">{trans.transactionId || trans.id}</Badge>
+                      </td>
+                      <td>
                         {new Date(trans.timestamp).toLocaleString('en-IN', {
                           day: '2-digit',
                           month: '2-digit',
@@ -369,12 +566,24 @@ function CustomerDashboard() {
                         })}
                       </td>
                       <td>
-                        <Badge bg={trans.type === "deposit" ? "success" : "danger"}>
-                          {trans.type === "deposit" ? "Deposit" : "Withdrawal"}
+                        <Badge bg={
+                          trans.type?.toUpperCase() === "DEPOSIT" || 
+                          trans.description?.toLowerCase().includes("deposit") 
+                          ? "success" : "danger"
+                        }>
+                          {trans.type?.toUpperCase() === "DEPOSIT" || 
+                          trans.description?.toLowerCase().includes("deposit")
+                          ? "Deposit" : "Withdrawal"}
                         </Badge>
                       </td>
-                      <td className={trans.type === "deposit" ? "text-success fw-bold" : "text-danger fw-bold"}>
-                        {trans.type === "deposit" ? "+" : "-"}₹{(trans.amount || 0).toLocaleString()}
+                      <td className={
+                        trans.type?.toUpperCase() === "DEPOSIT" || 
+                        trans.description?.toLowerCase().includes("deposit")
+                        ? "text-success fw-bold" : "text-danger fw-bold"
+                      }>
+                        {trans.type?.toUpperCase() === "DEPOSIT" || 
+                        trans.description?.toLowerCase().includes("deposit")
+                        ? "+" : "-"}₹{(trans.amount || 0).toLocaleString()}
                       </td>
                       <td>
                         <Badge bg="secondary">{trans.mode || "Cash"}</Badge>
@@ -392,7 +601,7 @@ function CustomerDashboard() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan="7" className="text-center text-muted py-4">
+                    <td colSpan="8" className="text-center text-muted py-4">
                       {searchTerm ? "No transactions match your search" : "No transactions found"}
                     </td>
                   </tr>
@@ -404,12 +613,28 @@ function CustomerDashboard() {
       </Card>
 
       {/* Add Transaction Modal */}
-      <Modal show={showAddTransactionModal} onHide={() => setShowAddTransactionModal(false)} centered>
+      <Modal show={showAddTransactionModal} onHide={() => {
+        setShowAddTransactionModal(false);
+        setCurrentTransactionId("");
+      }} centered>
         <Modal.Header closeButton>
           <Modal.Title>Add Transaction</Modal.Title>
         </Modal.Header>
         <Form onSubmit={handleAddTransaction}>
           <Modal.Body>
+            <Form.Group className="mb-3">
+              <Form.Label>Transaction ID</Form.Label>
+              <Form.Control
+                type="text"
+                value={currentTransactionId}
+                disabled
+                className="bg-light font-monospace fw-bold"
+              />
+              <Form.Text className="text-muted">
+                This ID will be automatically assigned to this transaction
+              </Form.Text>
+            </Form.Group>
+
             <Form.Group className="mb-3">
               <Form.Label>Transaction Type</Form.Label>
               <Form.Select
@@ -473,7 +698,10 @@ function CustomerDashboard() {
             </Form.Group>
           </Modal.Body>
           <Modal.Footer>
-            <Button variant="secondary" onClick={() => setShowAddTransactionModal(false)}>
+            <Button variant="secondary" onClick={() => {
+              setShowAddTransactionModal(false);
+              setCurrentTransactionId("");
+            }}>
               Cancel
             </Button>
             <Button style={{ backgroundColor: 'rgb(239,96,16)', border: 'none', color: '#ffffff' }} type="submit">

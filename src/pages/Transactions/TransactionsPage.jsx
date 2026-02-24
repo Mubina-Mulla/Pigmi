@@ -32,11 +32,8 @@ function TransactionsPage() {
   useEffect(() => {
     const customersRef = ref(database, "customers");
     const agentsRef = ref(database, "agents");
-    const transactionsRef = ref(database, "transactions");
 
-    let customerListCache = [];
-
-    // Fetch agents
+    // Fetch agents first
     onValue(agentsRef, (snapshot) => {
       const agentData = snapshot.val() || {};
       const agentList = [];
@@ -52,6 +49,7 @@ function TransactionsPage() {
       setAgents(agentList);
     });
 
+    // Fetch customers and then their transactions from agents path
     onValue(customersRef, (snapshot) => {
       const customerData = snapshot.val() || {};
       const customerList = [];
@@ -66,48 +64,40 @@ function TransactionsPage() {
           });
         }
       });
-      customerListCache = customerList;
       setCustomers(customerList);
-    });
 
-    onValue(transactionsRef, (snapshot) => {
-      const transactionData = snapshot.val() || {};
+      // Fetch transactions from global transactions node (grouped by account number)
       const transactionList = [];
       
-      Object.entries(transactionData).forEach(([uid, uidData]) => {
-        if (uidData && typeof uidData === 'object') {
-          if (uidData.type || uidData.amount) {
-            const customer = customerListCache.find(c => c.accountNo === uid);
-            transactionList.push({
-              id: uid,
-              accountNo: uid,
-              customerName: customer ? customer.name : "Unknown",
-              agentName: customer ? customer.agentName : "",
-              route: customer ? customer.route : "",
-              ...uidData
-            });
-          } else {
-            Object.entries(uidData).forEach(([subId, subTransaction]) => {
-              if (subTransaction && typeof subTransaction === 'object') {
-                const customer = customerListCache.find(c => c.accountNo === uid);
+      const globalTransRef = ref(database, "transactions");
+      onValue(globalTransRef, (globalSnapshot) => {
+        const globalTransData = globalSnapshot.val() || {};
+        
+        // Iterate through account numbers
+        Object.entries(globalTransData).forEach(([accountNo, accountTransactions]) => {
+          if (accountTransactions && typeof accountTransactions === 'object') {
+            // Iterate through transactions for each account
+            Object.entries(accountTransactions).forEach(([transactionId, transaction]) => {
+              if (transaction && typeof transaction === 'object') {
+                const customer = customerList.find(c => c.accountNo === accountNo);
                 transactionList.push({
-                  id: subId,
-                  uid,
-                  accountNo: uid,
-                  customerName: customer ? customer.name : "Unknown",
-                  agentName: customer ? customer.agentName : "",
-                  route: customer ? customer.route : "",
-                  ...subTransaction
+                  id: transactionId,
+                  accountNo: accountNo,
+                  customerName: transaction.customerName || (customer ? customer.name : "Unknown"),
+                  agentName: transaction.agentName || (customer ? customer.agentName : ""),
+                  route: transaction.route || (customer ? customer.route : ""),
+                  transactionId: transaction.transactionId || transactionId,
+                  ...transaction
                 });
               }
             });
           }
-        }
+        });
+        
+        transactionList.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        setTransactions(transactionList);
+        setLoading(false);
       });
-
-      transactionList.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
-      setTransactions(transactionList);
-      setLoading(false);
     });
   }, []);
 
@@ -281,6 +271,7 @@ function TransactionsPage() {
             <Table hover>
               <thead className="bg-light">
                 <tr>
+                  <th>Transaction ID</th>
                   <th>Date</th>
                   <th>Time</th>
                   <th>Account No</th>
@@ -302,6 +293,9 @@ function TransactionsPage() {
 
                   return (
                     <tr key={t.id || index} className="align-middle">
+                      <td>
+                        <Badge bg="secondary" className="font-monospace">{t.transactionId || t.id}</Badge>
+                      </td>
                       <td>{date}</td>
                       <td className="text-muted"><small>{time}</small></td>
                       <td><Badge bg="outline-primary" text="dark">{t.accountNo}</Badge></td>
@@ -336,7 +330,7 @@ function TransactionsPage() {
                   );
                 }) : (
                   <tr>
-                    <td colSpan="10" className="text-center text-muted py-4">
+                    <td colSpan="11" className="text-center text-muted py-4">
                       <DollarSign size={32} className="mb-2" /><br />
                       No transactions found
                     </td>

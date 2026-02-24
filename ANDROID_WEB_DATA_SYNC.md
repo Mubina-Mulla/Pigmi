@@ -71,8 +71,12 @@ const accountNo = `ACC${Date.now()}${Math.floor(Math.random() * 1000)}`;
 ### 4. Transaction ID Generation
 ```javascript
 // Use this EXACT format for transaction IDs
-const transactionId = `TXN${Date.now()}`;
-// Example: TXN1698765432000
+// Format: TXN{8-character hexadecimal}
+const timestamp = Date.now();
+const random = Math.floor(Math.random() * 0xFFFFFFFF);
+const hex = (timestamp + random).toString(16).toUpperCase().slice(-8);
+const transactionId = `TXN${hex}`;
+// Example: TXN8770A1FB, TXNFED277F1
 ```
 
 ## 📱 Android Implementation Example
@@ -99,8 +103,11 @@ transactionData.put("type", "deposit"); // IMPORTANT: lowercase
 transactionData.put("amount", Double.parseDouble(amount)); // IMPORTANT: Number
 transactionData.put("timestamp", System.currentTimeMillis()); // IMPORTANT: timestamp
 
-// Firebase path
-String transactionId = "TXN" + System.currentTimeMillis();
+// Firebase path - Generate hex-based transaction ID
+long timestamp = System.currentTimeMillis();
+int random = new Random().nextInt(Integer.MAX_VALUE);
+String hex = Long.toHexString(timestamp + random).toUpperCase();
+String transactionId = "TXN" + hex.substring(Math.max(0, hex.length() - 8));
 String path = "agents/" + agentName + "/customers/" + accountNo + "/transactions/" + transactionId;
 database.getReference(path).setValue(transactionData);
 ```
@@ -112,13 +119,16 @@ Admin can add payments to any customer (added by any agent):
 ```java
 // Admin adding payment to customer
 Map<String, Object> paymentData = new HashMap<>();
-paymentData.put("type", "deposit"); // or "withdrawal"
-paymentData.put("amount", 1500.0);
-paymentData.put("timestamp", System.currentTimeMillis());
 paymentData.put("note", "Admin payment");
 paymentData.put("addedBy", "admin");
 
-String transactionId = "TXN" + System.currentTimeMillis();
+long timestamp = System.currentTimeMillis();
+int random = new Random().nextInt(Integer.MAX_VALUE);
+String hex = Long.toHexString(timestamp + random).toUpperCase();
+String transactionId = "TXN" + hex.substring(Math.max(0, hex.length() - 8));
+String path = "agents/" + agentName + "/customers/" + accountNo + "/transactions/" + transactionId;
+
+String transactionId = "TXN" + System.currentTimeMillis() + String.format("%03d", new Random().nextInt(1000));
 String path = "agents/" + agentName + "/customers/" + accountNo + "/transactions/" + transactionId;
 database.getReference(path).setValue(paymentData);
 ```
@@ -128,13 +138,16 @@ Agent can add payments to their own customers:
 ```java
 // Agent adding payment to their customer
 Map<String, Object> paymentData = new HashMap<>();
-paymentData.put("type", "deposit");
-paymentData.put("amount", 1000.0);
-paymentData.put("timestamp", System.currentTimeMillis());
 paymentData.put("note", "Agent payment");
 paymentData.put("addedBy", "agent");
 
-String transactionId = "TXN" + System.currentTimeMillis();
+long timestamp = System.currentTimeMillis();
+int random = new Random().nextInt(Integer.MAX_VALUE);
+String hex = Long.toHexString(timestamp + random).toUpperCase();
+String transactionId = "TXN" + hex.substring(Math.max(0, hex.length() - 8));
+String path = "agents/" + currentAgentName + "/customers/" + accountNo + "/transactions/" + transactionId;
+
+String transactionId = "TXN" + System.currentTimeMillis() + String.format("%03d", new Random().nextInt(1000));
 String path = "agents/" + currentAgentName + "/customers/" + accountNo + "/transactions/" + transactionId;
 database.getReference(path).setValue(paymentData);
 ```

@@ -441,6 +441,7 @@ function CustomersPage() {
     )?.name || '';
     
     const customerData = {
+      accountNo: accountNo,
       accountNumber: accountNo,
       name: newCustomer.name,
       mobileNumber: newCustomer.mobile,
@@ -459,20 +460,47 @@ function CustomersPage() {
 
     if (parseInt(newCustomer.initialDeposit) > 0) {
       const transactionId = generateTransactionId();
+      const timestamp = Date.now();
+      const currentDate = new Date(timestamp);
+      
+      // Format date as DD/MM/YYYY
+      const formattedDate = currentDate.toLocaleDateString('en-GB');
+      
+      // Format time as HH:MM:SS
+      const formattedTime = currentDate.toLocaleTimeString('en-GB', { 
+        hour: '2-digit', 
+        minute: '2-digit', 
+        second: '2-digit' 
+      });
+      
       const transaction = {
-        type: "deposit",
+        transactionId: transactionId,
+        accountNo: accountNo,
+        customerName: newCustomer.name,
+        agentId: newCustomer.agentName,
+        agentName: newCustomer.agentName,
         amount: parseInt(newCustomer.initialDeposit),
-        date: new Date().toISOString().split('T')[0],
-        timestamp: Date.now(),
+        date: formattedDate,
+        description: "Deposit (Cash)",
         mode: "cash",
+        route: customerRoute,
+        time: formattedTime,
+        timestamp: timestamp,
+        type: "DEPOSIT",
         note: "Initial deposit",
         addedBy: "admin"
       };
+      
+      // Save to global transactions node
       await set(ref(database, `transactions/${accountNo}/${transactionId}`), transaction);
+      
+      // Save to agent's customer transactions
+      await set(ref(database, `agents/${newCustomer.agentName}/customers/${accountNo}/transactions/${transactionId}`), transaction);
     }
 
-    // Save customer data
+    // Save customer data to both global and agent paths
     await set(ref(database, `customers/${accountNo}`), customerData);
+    await set(ref(database, `agents/${newCustomer.agentName}/customers/${accountNo}`), customerData);
     
     // Sync global count and agent customer count after adding customer
     await syncGlobalCount();
@@ -702,31 +730,49 @@ function CustomersPage() {
     
     if (window.confirm(confirmMessage)) {
       try {
+        const accountNo = customer.accountNo || customer.accountNumber;
+        const agentName = customer.agentName;
+        
         // Get all customer data including transactions
-        const customerDataSnapshot = await get(ref(database, `customers/${customer.accountNo}`));
-        const transactionsSnapshot = await get(ref(database, `transactions/${customer.accountNo}`));
-        const transactionCountSnapshot = await get(ref(database, `customerTransactionCount/${customer.accountNo}`));
+        const customerDataSnapshot = await get(ref(database, `customers/${accountNo}`));
+        const transactionsSnapshot = await get(ref(database, `transactions/${accountNo}`));
+        const transactionCountSnapshot = await get(ref(database, `customerTransactionCount/${accountNo}`));
+        
+        // Get agent's customer transactions if they exist
+        let agentTransactions = null;
+        if (agentName) {
+          const agentTransSnapshot = await get(ref(database, `agents/${agentName}/customers/${accountNo}/transactions`));
+          if (agentTransSnapshot.exists()) {
+            agentTransactions = agentTransSnapshot.val();
+          }
+        }
         
         // Prepare deleted customer object
         const deletedCustomer = {
           data: customerDataSnapshot.val(),
           transactions: transactionsSnapshot.exists() ? transactionsSnapshot.val() : null,
+          agentTransactions: agentTransactions,
           transactionCount: transactionCountSnapshot.exists() ? transactionCountSnapshot.val() : null,
           deletedAt: Date.now(),
           deletedBy: 'admin'
         };
         
         // Move to recycle bin
-        await set(ref(database, `deletedCustomers/${customer.accountNo}`), deletedCustomer);
+        await set(ref(database, `deletedCustomers/${accountNo}`), deletedCustomer);
         
-        // Delete customer transactions
-        await remove(ref(database, `transactions/${customer.accountNo}`));
+        // Delete from global transactions node
+        await remove(ref(database, `transactions/${accountNo}`));
+        
+        // Delete from agent's customer transactions
+        if (agentName) {
+          await remove(ref(database, `agents/${agentName}/customers/${accountNo}`));
+        }
         
         // Delete customer transaction count
-        await remove(ref(database, `customerTransactionCount/${customer.accountNo}`));
+        await remove(ref(database, `customerTransactionCount/${accountNo}`));
         
-        // Delete customer data
-        await remove(ref(database, `customers/${customer.accountNo}`));
+        // Delete customer data from global customers node
+        await remove(ref(database, `customers/${accountNo}`));
         
         // Sync global count and agent customer count after deleting customer
         await syncGlobalCount();

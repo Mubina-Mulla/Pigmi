@@ -156,7 +156,13 @@ export const generateAccountNumber = () => {
 };
 
 export const generateTransactionId = () => {
-  return `TXN${Date.now()}`;
+  // Generate unique transaction ID using hexadecimal format
+  // Format: TXN{8-character hex string}
+  // Example: TXN8770A1FB, TXNFED277F1
+  const timestamp = Date.now();
+  const random = Math.floor(Math.random() * 0xFFFFFFFF);
+  const hex = (timestamp + random).toString(16).toUpperCase().slice(-8);
+  return `TXN${hex}`;
 };
 
 // Example usage:
